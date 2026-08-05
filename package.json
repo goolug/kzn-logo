@@ -1,0 +1,19 @@
+{
+  "name": "kzn-logo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kaizen mark as a living system — grid-built dot formations. Zero-dependency ES modules: SVG today, WebGL treatment next.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./core": "./src/core.js",
+    "./svg": "./src/svg.js",
+    "./element": "./src/element.js"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "serve": "python3 -m http.server 4173",
+    "build:standalone": "node tools/build-standalone.mjs"
+  }
+}

@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kaizen — logo engine</title>
+<script>
+  // theme must land before first paint (no flash, no transition on load)
+  document.documentElement.dataset.theme =
+    new URLSearchParams(location.search).get('theme') || 'light';
+</script>
+<style>
+  :root {
+    --bg: #fffbf8;
+    --ink: #1e1e1e;
+    --line: color-mix(in srgb, var(--ink) 16%, transparent);
+    --soft: color-mix(in srgb, var(--ink) 55%, transparent);
+  }
+  :root[data-theme='dark'] {
+    --bg: #1e1e1e;
+    --ink: #fffbf8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    transition: background 0.25s ease, color 0.25s ease;
+    padding: 0 clamp(16px, 4vw, 48px) 64px;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 22px 0 18px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 28px;
+  }
+  h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.35em;
+    margin: 0;
+  }
+  h1 span { font-weight: 400; letter-spacing: 0.12em; color: var(--soft); }
+  .mono, button, select, input, output, label {
+    font: 12px/1.4 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 36px; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .panel, .group, .row { min-width: 0; }
+
+  #stage {
+    width: 100%;
+    max-width: 100%;
+    border: 1px dashed var(--line);
+    overflow: hidden;
+    position: relative;
+  }
+  #stage.free { resize: both; aspect-ratio: unset !important; height: 420px; }
+  kzn-logo#logo { width: 100%; height: 100%; }
+  .stagebar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .stagebar .spacer { flex: 1; }
+  #stats { color: var(--soft); }
+
+  button, select {
+    appearance: none;
+    background: none;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--ink); }
+  button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); padding: 8px 18px; }
+  input[type='text'] {
+    background: none;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 6px 10px;
+    width: 110px;
+  }
+  input[type='range'] { accent-color: var(--ink); width: 100%; margin: 0; }
+
+  .panel { display: flex; flex-direction: column; gap: 22px; }
+  .group { border-top: 1px solid var(--line); padding-top: 14px; }
+  .group h2 {
+    font: 11px ui-monospace, monospace;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--soft);
+    margin: 0 0 12px;
+    font-weight: 400;
+  }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .row label { min-width: 72px; color: var(--soft); }
+  .row output { min-width: 52px; text-align: right; color: var(--soft); }
+  .row select { flex: 1 1 0; min-width: 0; }
+  .note { color: var(--soft); font-size: 12px; line-height: 1.6; }
+
+  .strip {
+    margin-top: 48px;
+    border-top: 1px solid var(--line);
+    padding-top: 28px;
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    flex-wrap: wrap;
+  }
+  .lockup { display: flex; align-items: center; gap: 18px; }
+  .lockup .word {
+    font-weight: 700;
+    letter-spacing: 0.35em;
+    font-size: 22px;
+    transform: translateY(1px);
+  }
+  .sizes { display: flex; align-items: flex-end; gap: 28px; }
+  footer {
+    margin-top: 40px;
+    color: var(--soft);
+    font-size: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>KAIZEN <span>· logo engine — flat</span></h1>
+  <button id="theme">dark ◐</button>
+</header>
+
+<main>
+  <section>
+    <div id="stage"><kzn-logo id="logo" mode="dynamic" interactive seed="kzn"></kzn-logo></div>
+    <div class="stagebar">
+      <button data-aspect="mark">mark 1.156:1</button>
+      <button data-aspect="square">1:1</button>
+      <button data-aspect="wide">16:9</button>
+      <button data-aspect="tall">9:16</button>
+      <button data-aspect="ultra">21:9</button>
+      <button data-aspect="free">free ⤡</button>
+      <button id="grid">grid</button>
+      <span class="spacer"></span>
+      <span id="stats" class="mono"></span>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="group">
+      <h2>Formation</h2>
+      <div class="row">
+        <button id="shuffle" class="primary">shuffle ↻</button>
+        <button id="rest">rest (mark)</button>
+      </div>
+      <div class="row">
+        <label for="seed">seed</label>
+        <input type="text" id="seed" value="kzn" />
+      </div>
+      <p class="note">Click the logo itself to shuffle, too. Same seed &amp; step → same formation, anywhere.</p>
+    </div>
+
+    <div class="group">
+      <h2>Rules</h2>
+      <div class="row">
+        <label for="placement">grid rule</label>
+        <select id="placement">
+          <option value="construction">construction — on lines / hanging</option>
+          <option value="lines">lines — slide along gridlines</option>
+          <option value="points">points — intersections only</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="gap">min gap</label>
+        <input type="range" id="gap" min="0" max="0.35" step="0.01" />
+        <output id="gapOut"></output>
+      </div>
+      <div class="row">
+        <label for="spread">spread</label>
+        <input type="range" id="spread" min="0.5" max="1" step="0.01" />
+        <output id="spreadOut"></output>
+      </div>
+      <div class="row">
+        <label for="count">dots</label>
+        <input type="range" id="count" min="4" max="8" step="1" />
+        <output id="countOut">6</output>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Motion</h2>
+      <div class="row">
+        <label for="motion">style</label>
+        <select id="motion">
+          <option value="glide">calm glide</option>
+          <option value="instant">instant snap</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="easing">easing</label>
+        <select id="easing">
+          <option value="cubic">cubic in-out</option>
+          <option value="quint">quint in-out</option>
+          <option value="linear">linear</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="duration">duration</label>
+        <input type="range" id="duration" min="150" max="1600" step="10" />
+        <output id="durOut"></output>
+      </div>
+      <div class="row">
+        <label for="stagger">stagger</label>
+        <input type="range" id="stagger" min="0" max="140" step="5" />
+        <output id="stagOut"></output>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Export</h2>
+      <div class="row">
+        <button id="dlMark">mark .svg</button>
+        <button id="dlCurrent">formation .svg</button>
+        <button id="copyLink">copy link</button>
+      </div>
+      <p class="note">
+        Everything above is an open decision, not a commitment — defaults follow
+        the construction measured in the Figma master. Flip things, find the
+        feel, tell me what wins.
+      </p>
+    </div>
+  </aside>
+</main>
+
+<section class="strip">
+  <div class="lockup">
+    <kzn-logo mode="static" style="height: 30px; width: 34.7px"></kzn-logo>
+    <span class="word">KAIZEN</span>
+  </div>
+  <div class="sizes">
+    <kzn-logo mode="static" style="height: 64px; width: 74px"></kzn-logo>
+    <kzn-logo mode="static" style="height: 36px; width: 41.6px"></kzn-logo>
+    <kzn-logo mode="static" style="height: 20px; width: 23.1px"></kzn-logo>
+  </div>
+  <p class="note">
+    The stable symbol — exact Figma coordinates, untouched by the generator.
+    (Wordmark here is placeholder type; production uses Replica.)
+  </p>
+</section>
+
+<footer>
+  Built from first principles measured in Figma (KZN&nbsp;Web · node&nbsp;170-3040):
+  dot ⌀ = 0.775 cell · kernel edge through the crosshair, never its center ·
+  dots on gridlines, resting or hanging · no touching · strict gravity falloff.
+</footer>
+
+<script type="module" src="./demo.js"></script>
+</body>
+</html>

@@ -14,7 +14,9 @@ const logo = $('logo');
 const params = new URLSearchParams(location.search);
 const demoState = {
   aspect: params.get('aspect') || 'mark',
-  theme: params.get('theme') || 'light',
+  theme:
+    params.get('theme') ||
+    (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
   grid: params.get('grid') === '1',
   seed: params.get('seed') || 'kzn',
   placement: params.get('placement') || defaults.placement,

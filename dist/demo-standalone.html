@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Kaizen — logo engine</title>
 <script>
-  // theme must land before first paint (no flash, no transition on load)
+  // theme must land before first paint (no flash, no transition on load);
+  // URL param wins, otherwise follow the OS preference
   document.documentElement.dataset.theme =
-    new URLSearchParams(location.search).get('theme') || 'light';
+    new URLSearchParams(location.search).get('theme') ||
+    (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 </script>
 <style>
   :root {
@@ -1050,7 +1052,9 @@ const logo = $('logo');
 const params = new URLSearchParams(location.search);
 const demoState = {
   aspect: params.get('aspect') || 'mark',
-  theme: params.get('theme') || 'light',
+  theme:
+    params.get('theme') ||
+    (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
   grid: params.get('grid') === '1',
   seed: params.get('seed') || 'kzn',
   placement: params.get('placement') || defaults.placement,

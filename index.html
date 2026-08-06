@@ -178,7 +178,13 @@
         <label for="seed">seed</label>
         <input type="text" id="seed" value="kzn" />
       </div>
-      <p class="note">Click the logo itself to shuffle, too. Same seed &amp; step → same formation, anywhere.</p>
+      <div class="row">
+        <label for="scaleR">scale</label>
+        <input type="range" id="scaleR" min="0.5" max="4" step="0.05" />
+        <output id="scaleOut"></output>
+        <button id="scaleReset" title="back to the default 4-cell grid">reset</button>
+      </div>
+      <p class="note">Click the logo itself to shuffle, too. Same seed &amp; step → same formation, anywhere. Scale 1 = four cells on the short side; zoom in and the dots bleed like the blown-up background, zoom out and the grid extends.</p>
     </div>
 
     <div class="group">
@@ -248,13 +254,37 @@
       </div>
       <div id="fxRows">
         <div class="row">
-          <label for="blur">blur</label>
-          <input type="range" id="blur" min="0" max="80" step="1" />
-          <output id="blurOut"></output>
+          <button id="stackOn" class="primary">kaizen stack</button>
+          <button id="stackOff">off (flat)</button>
+        </div>
+        <div class="row">
+          <label for="fog">fog</label>
+          <input type="range" id="fog" min="0" max="2" step="0.05" />
+          <output id="fogOut"></output>
+        </div>
+        <div class="row">
+          <label for="bokeh">bokeh</label>
+          <input type="range" id="bokeh" min="0" max="2" step="0.05" />
+          <output id="bokehOut"></output>
+        </div>
+        <div class="row">
+          <label for="rays">god rays</label>
+          <input type="range" id="rays" min="0" max="2" step="0.05" />
+          <output id="raysOut"></output>
+        </div>
+        <div class="row">
+          <label for="zoom">zoom blur</label>
+          <input type="range" id="zoom" min="0" max="2" step="0.05" />
+          <output id="zoomOut"></output>
+        </div>
+        <div class="row">
+          <label for="diffuse">diffuse</label>
+          <input type="range" id="diffuse" min="0" max="2" step="0.05" />
+          <output id="diffuseOut"></output>
         </div>
         <div class="row">
           <label for="grain">grain</label>
-          <input type="range" id="grain" min="0" max="0.5" step="0.01" />
+          <input type="range" id="grain" min="0" max="2" step="0.05" />
           <output id="grainOut"></output>
         </div>
         <div class="row">
@@ -268,9 +298,10 @@
         </div>
       </div>
       <p class="note">
-        Placeholder passes, wired end-to-end (blur → grain → duotone). The
-        real stack gets replicated from the Unicorn Studio prototype — share
-        the embed/export. All zeros = exact flat parity.
+        The stack replicated from the Unicorn Studio prototype (fog → bokeh →
+        god rays → zoom blur → diffuse; grain rides the fog). 1 = the
+        prototype's value. Center stays sharp by design. All zeros = exact
+        flat parity. Tint is extra, for non-B&amp;W colorways.
       </p>
     </div>
 

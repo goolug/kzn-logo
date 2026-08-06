@@ -86,14 +86,26 @@ into `dist/`.
 | "On the grid" strictness | construction (lines + resting/hanging) | slide along lines · intersections only |
 | Motion | calm glide 750ms, 45ms stagger, cubic | instant snap · springy/stepped (not built — say the word) |
 
+## The treatment
+
+The WebGL chain replicates the Unicorn Studio prototype (scene *"Copy of kzn
+B&W"*, project `NO1CV0Uhn80QBvypdiHu`): **fog** (drifting fbm field modulating
+an exponential blur, ACES-toned, film grain, additive) → **bokeh** →
+**god rays** (light just below center, decay 0.899, intensity 2.8) →
+**zoom blur** (gated off near the center) → **diffuse** (static scatter, also
+zero at center). The signature: the crosshair region stays sharp while the
+field dissolves outward — gravity as optics. Parameter values were extracted
+from the scene data; the GLSL here is an original clean-room implementation
+(Unicorn Studio's compiled shaders are commercially licensed and none of
+their code is copied). `KAIZEN_STACK` in `src/webgl.js` holds the extracted
+defaults; `.effects` scales each pass (1 = prototype value, 0 = off).
+Grid **scale** (`.options.scale`, default 1) zooms the grid: >1 shows a
+window into the standard canvas (dots bleed, pure zoom), <1 extends the grid.
+
 ## Roadmap
 
-1. **The real treatment** — the WebGL renderer + post pipeline exist
-   (scene → blur → grain → duotone, all uniform-driven placeholders).
-   Next: replicate the exact effect stack from the Unicorn Studio prototype —
-   there is no API/connector for Unicorn Studio, so share the embed URL or the
-   exported project JSON and the stack gets rebuilt natively as shader passes.
-   Flat SVG stays as fallback and print path.
+1. Fidelity pass against the live embed (bokeh gating + radial-blur
+   internals are approximated; tap counts tuned for mobile).
 2. Package/minify (`dist/` single file is already embeddable anywhere).
 3. Size-variation mode, if wanted, once the rules for it are decided.
 

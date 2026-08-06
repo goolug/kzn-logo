@@ -1,16 +1,22 @@
 // kzn-logo — WebGL2 renderer. Same contract as the SVG dynamic renderer,
-// same formations, same motion math — plus a post-processing pipeline for
-// the treated look (page backgrounds, hero moments).
+// same formations, same motion math — plus the treated look for page
+// backgrounds and hero moments.
 //
 // With every effect at 0 the output is pixel-parity with the flat SVG:
 // antialiased currentColor dots on transparency, straight to screen.
-// The effect passes below (blur → grain → duotone) are SCAFFOLD placeholders
-// wired end-to-end so the real stack — replicated from the Unicorn Studio
-// prototype — can land as shader work without touching the engine.
 //
-// Perf posture: fragment SDF over ≤8 dots (no geometry), half-resolution
-// blur chain, renders only while something changes (tween or animated
-// grain), DPR capped at 2.
+// The treatment chain replicates, behaviorally, the Unicorn Studio
+// prototype (project "Copy of kzn B&W"): fog → bokeh → god rays → zoom
+// blur → diffuse. Parameter values (radii, speeds, centers, decay, grain)
+// were extracted from that scene's data; the GLSL below is an original
+// clean-room implementation of these standard techniques — no Unicorn
+// Studio shader code is copied. The signature of the stack: the center
+// stays sharp while the field dissolves toward the edges — gravity,
+// rendered as optics.
+//
+// Perf posture: fragment SDF scene over ≤8 dots, quarter/half-resolution
+// blur buffers, DPR capped at 2, renders continuously only while the fog
+// drifts or a tween runs (reduced-motion freezes the drift).
 
 import { assignTargets } from './core.js';
 import { buildTweens, sampleTweens } from './motion.js';
@@ -21,16 +27,65 @@ void main() {
   gl_Position = vec4(v * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
+const LIB = `
+  const float PI = 3.14159265359;
+  float ign(vec2 px) { // interleaved gradient noise (standard formula)
+    return fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715))));
+  }
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 345.45));
+    p += dot(p, p + 34.345);
+    return fract(p.x * p.y);
+  }
+  vec3 aces(vec3 x) { // ACES filmic curve (Narkowicz), public domain math
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+  }
+`;
+
+// value-noise fbm — original implementation; drives the fog field
+const FBM = `
+  float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1, 0));
+    float c = hash21(i + vec2(0, 1));
+    float d = hash21(i + vec2(1, 1));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y) * 2.0 - 1.0;
+  }
+  float fbm(vec2 p, float t) {
+    mat2 rot = mat2(0.6, -0.8, 0.8, 0.6);
+    float n = 0.0, amp = 0.55;
+    for (int i = 0; i < 5; i++) {
+      n += vnoise(p + vec2(t * 0.35, -t * 0.22) + float(i) * 7.31) * amp;
+      p = rot * p * 1.9;
+      amp *= 0.55;
+    }
+    return n;
+  }
+  // fog field: centered like the source scene, sigmoid-compressed
+  float fogField(vec2 uv, float ar, float t) {
+    vec2 aspect = vec2(ar, 1.0);
+    float mult = 10.0 * (0.648 / ((ar + 1.0) * 0.5));
+    vec2 st = (uv * aspect - vec2(0.504, 0.564) * aspect) * mult;
+    float c = cos(1.0128), s = sin(1.0128);
+    st = mat2(c, -s, s, c) * st;
+    float n = fbm(st - vec2(t * 0.048), t);
+    n = n / (1.0 + abs(n));
+    return clamp(n * 2.0, 0.0, 1.0);
+  }
+`;
+
 // dots + construction grid, drawn as one signed-distance field
 const SCENE_FS = `#version 300 es
 precision highp float;
 uniform vec2 uRes;      // px
-uniform vec2 uHalf;     // canvas half-size, in cells
+uniform vec2 uHalf;     // view half-size, in cells
 uniform vec3 uDots[8];  // x, y (cells, center origin, y down), radius
 uniform int uCount;
 uniform vec4 uInk;
 uniform vec4 uBg;
-uniform float uOpaque;  // 1 = composite on uBg (effects), 0 = transparent
+uniform float uOpaque;  // 1 = composite on uBg (treatment), 0 = transparent
 uniform float uGrid;
 out vec4 outColor;
 void main() {
@@ -66,42 +121,197 @@ void main() {
   }
 }`;
 
-const BLUR_FS = `#version 300 es
-precision highp float;
-uniform sampler2D uTex;
-uniform vec2 uRes;    // px of the target
-uniform vec2 uDir;
-uniform float uRadius;
-out vec4 outColor;
-void main() {
-  vec2 uv = gl_FragCoord.xy / uRes;
-  vec2 s = uDir * (uRadius / 4.0) / uRes;
-  vec4 c = texture(uTex, uv) * 0.2026;
-  c += (texture(uTex, uv + s * 1.0) + texture(uTex, uv - s * 1.0)) * 0.1790;
-  c += (texture(uTex, uv + s * 2.0) + texture(uTex, uv - s * 2.0)) * 0.1240;
-  c += (texture(uTex, uv + s * 3.0) + texture(uTex, uv - s * 3.0)) * 0.0672;
-  c += (texture(uTex, uv + s * 4.0) + texture(uTex, uv - s * 4.0)) * 0.0285;
-  outColor = c;
-}`;
-
-const POST_FS = `#version 300 es
+// fog blur: exponential-falloff directional blur whose radius is modulated
+// by the fog field (radius 1%–3% of the frame, as in the source scene)
+const FOGBLUR_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uRes;
-uniform float uGrain;
+uniform vec2 uDir;
 uniform float uTime;
+uniform float uAmt;
+out vec4 outColor;
+${LIB}
+${FBM}
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  float ar = uRes.x / uRes.y;
+  float f = fogField(uv, ar, uTime);
+  float radius = mix(0.01, 0.03, clamp(8.0 * f * 0.35, 0.0, 1.0)) * uAmt;
+  vec2 dir = normalize(uDir) / vec2(ar, 1.0);
+  vec4 acc = texture(uTex, uv);
+  float total = 1.0;
+  for (int i = 1; i <= 8; i++) {
+    float w = exp(-float(i) / 3.0);
+    float off = radius * float(i) / 8.0;
+    acc += (texture(uTex, uv + off * dir) + texture(uTex, uv - off * dir)) * w;
+    total += 2.0 * w;
+  }
+  outColor = acc / total;
+}`;
+
+// fog composite: ACES-toned blurred scene + film grain, added under the mask
+const FOGCOMP_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;   // sharp scene
+uniform sampler2D uBlur;  // fog-blurred scene
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uFog;
+uniform float uGrain;
+out vec4 outColor;
+${LIB}
+${FBM}
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  float ar = uRes.x / uRes.y;
+  vec4 bg = texture(uTex, uv);
+  vec3 b = texture(uBlur, uv).rgb;
+  float mask = fogField(uv, ar, uTime) * uFog;
+  float grain = hash21(uv * uRes.xy / 100.0 + fract(uTime));
+  b = aces(b * 0.8) + grain * 0.05 * uGrain;
+  outColor = vec4(bg.rgb + b * mask, 1.0);
+}`;
+
+// bokeh: golden-angle disc blur, dithered by gradient noise
+const BOKEH_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uAmt; // radius scale; source scene: 0.1
+out vec4 outColor;
+${LIB}
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  float ar = uRes.x / uRes.y;
+  float radius = 0.1 * uAmt * 0.25;
+  float rot = ign(gl_FragCoord.xy) * 2.0 * PI;
+  vec4 acc = vec4(0.0);
+  const int N = 16;
+  for (int i = 0; i < N; i++) {
+    float t = (float(i) + 0.5) / float(N);
+    float a = float(i) * 2.39996323 + rot; // golden angle
+    vec2 off = vec2(cos(a) / ar, sin(a)) * sqrt(t) * radius;
+    acc += texture(uTex, uv + off);
+  }
+  outColor = acc / float(N);
+}`;
+
+// god rays: luminance-weighted samples marching toward the light, additive
+const RAYS_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uAmt;
+out vec4 outColor;
+${LIB}
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec2 light = vec2(0.5, 0.5574); // just below center, as in the source scene
+  const float N = 48.0;
+  vec2 stepv = (light - uv) / N * 0.2775;
+  float noise = ign(gl_FragCoord.xy);
+  vec2 s = uv + stepv * noise;
+  vec2 perp = vec2(-stepv.y, stepv.x);
+  float weight = 1.0;
+  vec3 acc = vec3(0.0);
+  for (float i = 0.0; i < N; i++) {
+    float th = i / N;
+    s += stepv + perp * th * sin(noise * 0.25 * (1.0 + th) * 50.0) * 0.15;
+    vec3 samp = texture(uTex, s).rgb;
+    float lum = dot(samp, vec3(0.299, 0.587, 0.114));
+    acc += samp * smoothstep(-0.1, 0.0, lum) * weight;
+    weight *= 0.899;
+    if (weight < 0.05) break;
+  }
+  outColor = vec4(acc / N * 2.8 * uAmt, 1.0);
+}`;
+
+const ADD_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;  // base
+uniform sampler2D uAddT; // additive layer
+uniform vec2 uRes;
+out vec4 outColor;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  outColor = vec4(texture(uTex, uv).rgb + texture(uAddT, uv).rgb, 1.0);
+}`;
+
+// zoom blur: radial streaks toward the center — gated OFF near the center
+// (spread 0.23), so the crosshair region stays untouched
+const ZOOM_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uAmt;
+out vec4 outColor;
+${LIB}
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  float ar = uRes.x / uRes.y;
+  vec2 center = vec2(0.5012, 0.5648);
+  float d = distance(uv * vec2(ar, 1.0), center * vec2(ar, 1.0));
+  float near = max(0.0, 1.0 - d * 4.0 * (1.0 - 0.23));
+  float gate = max(0.0, 0.5 - near * near); // zero at center, on toward edges
+  vec2 toC = (center - uv) * 0.22 * uAmt * gate;
+  float noise = ign(gl_FragCoord.xy);
+  vec4 acc = vec4(0.0);
+  const int N = 20;
+  for (int i = 0; i < N; i++) {
+    float t = (float(i) + noise) / float(N);
+    acc += texture(uTex, uv + toC * t);
+  }
+  outColor = acc / float(N);
+}`;
+
+// diffuse: static random scatter, also zero at the center (tightness 0.75) —
+// dots melt into the field the farther they sit from the gravity well
+const DIFFUSE_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uAmt;
+out vec4 outColor;
+${LIB}
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  float ar = uRes.x / uRes.y;
+  float dctr = distance(uv * vec2(ar, 1.0), vec2(0.5 * ar, 0.5));
+  float near = max(0.0, 1.0 - dctr * 4.0 * (1.0 - 0.75));
+  float gate = max(0.0, 0.5 - near * near);
+  float amount = 1.068 * uAmt * gate;
+  vec2 dir = vec2(0.5 / ar, 0.5) * amount * 0.4;
+  vec4 acc = vec4(0.0);
+  const int N = 12;
+  float used = 0.0;
+  for (int i = 0; i < N; i++) {
+    float t = (float(i) + 0.5) / float(N);
+    if (t > 0.84) break;
+    float r1 = hash21(uv + t);
+    float r2 = hash21(uv + t * 2.0);
+    float r3 = hash21(uv + t * 3.0);
+    vec2 pt = (vec2(r1, r2) * 2.0 - 1.0) * mix(1.0, r3, 0.8);
+    acc += texture(uTex, uv + pt * dir);
+    used += 1.0;
+  }
+  outColor = used > 0.0 ? acc / used : texture(uTex, uv);
+}`;
+
+// final grade: optional duotone toward a tint (for non-B&W colorways)
+const GRADE_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
 uniform float uTintAmt;
-uniform vec3 uTintInk;  // tone the dots drift toward
-uniform vec3 uTintBg;   // tone the ground drifts toward
+uniform vec3 uTintInk;
+uniform vec3 uTintBg;
 out vec4 outColor;
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   vec4 c = texture(uTex, uv);
   float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
   c.rgb = mix(c.rgb, mix(uTintInk, uTintBg, lum), uTintAmt);
-  vec2 cell = floor(gl_FragCoord.xy) + vec2(uTime * 60.0, uTime * 47.0);
-  float n = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
-  c.rgb += (n - 0.5) * uGrain;
   outColor = vec4(c.rgb, 1.0);
 }`;
 
@@ -119,6 +329,23 @@ export function parseColor(str) {
   const v = m[1].split(',').map(parseFloat);
   return [v[0] / 255, v[1] / 255, v[2] / 255, v.length > 3 ? v[3] : 1];
 }
+
+/** The extracted treatment defaults — the prototype's design values. */
+export const KAIZEN_STACK = {
+  fog: 1,
+  bokeh: 1,
+  rays: 1,
+  zoom: 1,
+  diffuse: 1,
+  grain: 1,
+  tint: 0,
+  tintColor: '#AFA8D8',
+  background: null,
+};
+
+const ZERO_STACK = Object.fromEntries(
+  Object.keys(KAIZEN_STACK).map((k) => [k, typeof KAIZEN_STACK[k] === 'number' ? 0 : KAIZEN_STACK[k]])
+);
 
 export function createWebGLRenderer(canvas, host, opts = {}) {
   const gl = canvas.getContext('webgl2', {
@@ -155,9 +382,17 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     return { p, u: uniforms };
   }
 
-  const scene = compile(SCENE_FS);
-  const blur = compile(BLUR_FS);
-  const post = compile(POST_FS);
+  const prg = {
+    scene: compile(SCENE_FS),
+    fogBlur: compile(FOGBLUR_FS),
+    fogComp: compile(FOGCOMP_FS),
+    bokeh: compile(BOKEH_FS),
+    rays: compile(RAYS_FS),
+    add: compile(ADD_FS),
+    zoom: compile(ZOOM_FS),
+    diffuse: compile(DIFFUSE_FS),
+    grade: compile(GRADE_FS),
+  };
 
   const state = {
     duration: opts.duration ?? 750,
@@ -175,131 +410,206 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     onSettle: null,
     ink: [0.12, 0.12, 0.12, 1],
     bg: [1, 0.984, 0.973, 1],
-    effects: { blur: 0, grain: 0, tint: 0, tintColor: '#AFA8D8', background: null },
+    effects: { ...ZERO_STACK },
     pxW: 0,
     pxH: 0,
     t0: performance.now(),
   };
 
-  // --- framebuffers -------------------------------------------------------
-  let texScene = null, fboScene = null;
-  let texA = null, fboA = null, texB = null, fboB = null;
+  // --- framebuffers: 2 full-res + 2 half-res + 2 quarter-res --------------
+  const targets = {}; // name → {tex, fbo, w, h}
 
-  function makeTarget(w, h) {
-    const t = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, t);
+  function makeTarget(name, w, h) {
+    if (targets[name]) {
+      gl.deleteTexture(targets[name].tex);
+      gl.deleteFramebuffer(targets[name].fbo);
+    }
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    const f = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, f);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
-    return [t, f];
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    targets[name] = { tex, fbo, w, h };
   }
 
   function allocTargets() {
-    for (const t of [texScene, texA, texB]) if (t) gl.deleteTexture(t);
-    for (const f of [fboScene, fboA, fboB]) if (f) gl.deleteFramebuffer(f);
-    [texScene, fboScene] = makeTarget(state.pxW, state.pxH);
-    const hw = Math.max(1, state.pxW >> 1);
-    const hh = Math.max(1, state.pxH >> 1);
-    [texA, fboA] = makeTarget(hw, hh);
-    [texB, fboB] = makeTarget(hw, hh);
+    const W = state.pxW, H = state.pxH;
+    const hw = Math.max(1, W >> 1), hh = Math.max(1, H >> 1);
+    const qw = Math.max(1, W >> 2), qh = Math.max(1, H >> 2);
+    makeTarget('fullA', W, H);
+    makeTarget('fullB', W, H);
+    makeTarget('halfA', hw, hh);
+    makeTarget('halfB', hw, hh);
+    makeTarget('quarterA', qw, qh);
+    makeTarget('quarterB', qw, qh);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
-  // --- drawing ------------------------------------------------------------
-  const effectsActive = () =>
-    state.effects.blur > 0 || state.effects.grain > 0 || state.effects.tint > 0;
+  // --- pass plumbing ------------------------------------------------------
+  function bindTex(unit, tex) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+  }
 
-  function drawScene(opaque) {
-    const f = state.formation;
-    gl.useProgram(scene.p);
-    gl.uniform2f(scene.u.uRes, gl.drawingBufferWidth, gl.drawingBufferHeight);
-    gl.uniform2f(scene.u.uHalf, f.w / 2, f.h / 2);
-    const flat = new Float32Array(24);
-    const n = Math.min(state.current.length, 8);
-    for (let i = 0; i < n; i++) {
-      flat[i * 3] = state.current[i][0];
-      flat[i * 3 + 1] = state.current[i][1];
-      flat[i * 3 + 2] = f.r;
-    }
-    gl.uniform3fv(scene.u.uDots, flat);
-    gl.uniform1i(scene.u.uCount, n);
-    gl.uniform4fv(scene.u.uInk, state.ink);
-    gl.uniform4fv(scene.u.uBg, state.bg);
-    gl.uniform1f(scene.u.uOpaque, opaque ? 1 : 0);
-    gl.uniform1f(scene.u.uGrid, state.gridOn ? 1 : 0);
+  function pass(program, target, setup) {
+    const t = target ? targets[target] : null;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t ? t.fbo : null);
+    const w = t ? t.w : state.pxW;
+    const h = t ? t.h : state.pxH;
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(program.p);
+    if (program.u.uRes) gl.uniform2f(program.u.uRes, w, h);
+    setup(program.u, w, h);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  function blurPass(fbo, w, h, tex, dirX, dirY, radius) {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-    gl.viewport(0, 0, w, h);
-    gl.useProgram(blur.p);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.uniform1i(blur.u.uTex, 0);
-    gl.uniform2f(blur.u.uRes, w, h);
-    gl.uniform2f(blur.u.uDir, dirX, dirY);
-    gl.uniform1f(blur.u.uRadius, radius);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  const fx = () => state.effects;
+  const stackActive = () =>
+    ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain', 'tint'].some((k) => fx()[k] > 0);
+
+  function drawScene(target, opaque) {
+    const f = state.formation;
+    const [vw, vh] = f.view || [f.w, f.h];
+    pass(prg.scene, target, (u) => {
+      gl.uniform2f(u.uHalf, vw / 2, vh / 2);
+      const flat = new Float32Array(24);
+      const n = Math.min(state.current.length, 8);
+      for (let i = 0; i < n; i++) {
+        flat[i * 3] = state.current[i][0];
+        flat[i * 3 + 1] = state.current[i][1];
+        flat[i * 3 + 2] = f.r;
+      }
+      gl.uniform3fv(u.uDots, flat);
+      gl.uniform1i(u.uCount, n);
+      gl.uniform4fv(u.uInk, state.ink);
+      gl.uniform4fv(u.uBg, state.bg);
+      gl.uniform1f(u.uOpaque, opaque ? 1 : 0);
+      gl.uniform1f(u.uGrid, state.gridOn ? 1 : 0);
+    });
   }
 
   function draw() {
     if (!state.formation || !state.pxW) return;
-    if (!effectsActive()) {
+    if (!stackActive()) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, state.pxW, state.pxH);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      drawScene(false);
+      drawScene(null, false);
       return;
     }
-    // scene → full-res texture, composited on the ground color
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fboScene);
-    gl.viewport(0, 0, state.pxW, state.pxH);
-    drawScene(true);
 
-    // blur chain at half res
-    const hw = Math.max(1, state.pxW >> 1);
-    const hh = Math.max(1, state.pxH >> 1);
-    let tex = texScene;
-    const r = state.effects.blur / 2; // half-res space
-    if (state.effects.blur > 0) {
-      const rounds = state.effects.blur > 40 ? 2 : 1;
-      for (let i = 0; i < rounds; i++) {
-        blurPass(fboA, hw, hh, tex, 1, 0, r / rounds);
-        blurPass(fboB, hw, hh, texA, 0, 1, r / rounds);
-        tex = texB;
-      }
+    const e = fx();
+    const time = state.reduced ? 0 : ((performance.now() - state.t0) / 1000) * 0.2 * 0.05;
+    // "fog time" advances at layer speed 0.2 with the scene's 0.05 multiplier
+
+    drawScene('fullA', true);
+    let cur = 'fullA'; // name of the current full-res composite
+    let spare = 'fullB';
+
+    // 1 · fog — noise-modulated exponential blur at quarter res, added
+    //     under the fbm mask with ACES tone + film grain
+    if (e.fog > 0 || e.grain > 0) {
+      pass(prg.fogBlur, 'quarterA', (u) => {
+        bindTex(0, targets[cur].tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform2f(u.uDir, 1, 0);
+        gl.uniform1f(u.uTime, time);
+        gl.uniform1f(u.uAmt, Math.max(e.fog, 0.001));
+      });
+      pass(prg.fogBlur, 'quarterB', (u) => {
+        bindTex(0, targets.quarterA.tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform2f(u.uDir, 0, 1);
+        gl.uniform1f(u.uTime, time);
+        gl.uniform1f(u.uAmt, Math.max(e.fog, 0.001));
+      });
+      pass(prg.fogComp, spare, (u) => {
+        bindTex(0, targets[cur].tex);
+        bindTex(1, targets.quarterB.tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform1i(u.uBlur, 1);
+        gl.uniform1f(u.uTime, time);
+        gl.uniform1f(u.uFog, e.fog);
+        gl.uniform1f(u.uGrain, e.grain);
+      });
+      [cur, spare] = [spare, cur];
     }
 
-    // post: grain + duotone, to screen
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, state.pxW, state.pxH);
-    gl.useProgram(post.p);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.uniform1i(post.u.uTex, 0);
-    gl.uniform2f(post.u.uRes, state.pxW, state.pxH);
-    gl.uniform1f(post.u.uGrain, state.effects.grain);
-    gl.uniform1f(
-      post.u.uTime,
-      state.reduced ? 0 : (performance.now() - state.t0) / 1000
-    );
-    gl.uniform1f(post.u.uTintAmt, state.effects.tint);
-    const tc = parseColor(state.effects.tintColor);
-    gl.uniform3f(post.u.uTintInk, tc[0], tc[1], tc[2]);
-    gl.uniform3f(post.u.uTintBg, state.bg[0], state.bg[1], state.bg[2]);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // 2 · bokeh — golden-angle disc blur at half res; the blurred field
+    //     replaces the frame (as in the source scene), upsampled linearly
+    if (e.bokeh > 0) {
+      pass(prg.bokeh, 'halfA', (u) => {
+        bindTex(0, targets[cur].tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform1f(u.uAmt, e.bokeh);
+      });
+      pass(prg.grade, spare, (u) => {
+        bindTex(0, targets.halfA.tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform1f(u.uTintAmt, 0);
+        gl.uniform3f(u.uTintInk, 0, 0, 0);
+        gl.uniform3f(u.uTintBg, 0, 0, 0);
+      });
+      [cur, spare] = [spare, cur];
+    }
+
+    // 3 · god rays — half-res march toward the light, added over the frame
+    if (e.rays > 0) {
+      pass(prg.rays, 'halfB', (u) => {
+        bindTex(0, targets[cur].tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform1f(u.uAmt, e.rays);
+      });
+      pass(prg.add, spare, (u) => {
+        bindTex(0, targets[cur].tex);
+        bindTex(1, targets.halfB.tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform1i(u.uAddT, 1);
+      });
+      [cur, spare] = [spare, cur];
+    }
+
+    // 4 · zoom blur — radial streaks, gated off near the center
+    if (e.zoom > 0) {
+      pass(prg.zoom, spare, (u) => {
+        bindTex(0, targets[cur].tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform1f(u.uAmt, e.zoom);
+      });
+      [cur, spare] = [spare, cur];
+    }
+
+    // 5 · diffuse — static scatter, sharp center / dissolved edges
+    if (e.diffuse > 0) {
+      pass(prg.diffuse, spare, (u) => {
+        bindTex(0, targets[cur].tex);
+        gl.uniform1i(u.uTex, 0);
+        gl.uniform1f(u.uAmt, e.diffuse);
+      });
+      [cur, spare] = [spare, cur];
+    }
+
+    // 6 · grade to screen (duotone tint for non-B&W colorways, or plain blit)
+    pass(prg.grade, null, (u) => {
+      bindTex(0, targets[cur].tex);
+      gl.uniform1i(u.uTex, 0);
+      gl.uniform1f(u.uTintAmt, e.tint);
+      const tc = parseColor(e.tintColor);
+      gl.uniform3f(u.uTintInk, tc[0], tc[1], tc[2]);
+      gl.uniform3f(u.uTintBg, state.bg[0], state.bg[1], state.bg[2]);
+    });
   }
 
   // --- loop ---------------------------------------------------------------
   const needsLoop = () =>
-    !!state.anims || (state.effects.grain > 0 && !state.reduced);
+    !!state.anims ||
+    (!state.reduced && (fx().fog > 0 || fx().grain > 0));
 
   function tick(now) {
     state.raf = 0;
@@ -350,15 +660,14 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
         state.reduced ||
         state.motion === 'instant' ||
         state.duration <= 0;
-      const targets = first ? f.dots : assignTargets(state.current, f.dots);
+      const targetDots = first ? f.dots : assignTargets(state.current, f.dots);
       if (instant) {
         state.anims = null;
-        state.current = targets.map((d) => d.slice());
+        state.current = targetDots.map((d) => d.slice());
         draw();
         state.onSettle?.();
       } else {
-        state.anims = buildTweens(state.current, targets, state, performance.now());
-        ensureLoop();
+        state.anims = buildTweens(state.current, targetDots, state, performance.now());
       }
       ensureLoop();
     },

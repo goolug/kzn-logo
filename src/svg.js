@@ -91,9 +91,9 @@ export function createDynamicRenderer(svg, opts = {}) {
     while (state.circles.length > n) state.circles.pop().remove();
   }
 
-  function drawGrid(f) {
+  function drawGrid(f, vw, vh) {
     gridG.textContent = '';
-    const strokeW = Math.max(f.w, f.h) / 420; // hairline at any scale
+    const strokeW = Math.max(vw, vh) / 420; // hairline at any scale
     gridG.setAttribute('stroke-width', strokeW);
     const line = (x1, y1, x2, y2) => {
       const l = document.createElementNS(SVG_NS, 'line');
@@ -103,8 +103,8 @@ export function createDynamicRenderer(svg, opts = {}) {
       l.setAttribute('y2', y2);
       gridG.appendChild(l);
     };
-    for (const i of f.lines.v) line(i, -f.h / 2, i, f.h / 2);
-    for (const j of f.lines.h) line(-f.w / 2, j, f.w / 2, j);
+    for (const i of f.lines.v) line(i, -vh / 2, i, vh / 2);
+    for (const j of f.lines.h) line(-vw / 2, j, vw / 2, j);
     // the crosshair itself, slightly more present
     const cross = document.createElementNS(SVG_NS, 'circle');
     cross.setAttribute('r', strokeW * 2.4);
@@ -140,8 +140,9 @@ export function createDynamicRenderer(svg, opts = {}) {
     setFormation(f, { animate = true } = {}) {
       const first = !state.formation;
       state.formation = f;
-      svg.setAttribute('viewBox', `${-f.w / 2} ${-f.h / 2} ${f.w} ${f.h}`);
-      drawGrid(f);
+      const [vw, vh] = f.view || [f.w, f.h];
+      svg.setAttribute('viewBox', `${-vw / 2} ${-vh / 2} ${vw} ${vh}`);
+      drawGrid(f, vw, vh);
       ensureCircles(f.dots.length);
       for (const c of state.circles) c.setAttribute('r', f.r);
 

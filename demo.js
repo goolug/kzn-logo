@@ -29,11 +29,17 @@ const demoState = {
   count: +(params.get('count') || defaults.count),
   step: +(params.get('step') || 0),
   renderer: params.get('renderer') || 'svg',
-  blur: +(params.get('blur') || 0),
+  scale: +(params.get('scale') || 1),
+  fog: +(params.get('fog') || 0),
+  bokeh: +(params.get('bokeh') || 0),
+  rays: +(params.get('rays') || 0),
+  zoom: +(params.get('zoom') || 0),
+  diffuse: +(params.get('diffuse') || 0),
   grain: +(params.get('grain') || 0),
   tint: +(params.get('tint') || 0),
   tintc: params.get('tintc') || 'AFA8D8', // hex without '#'
 };
+const FX_KEYS = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
 
 const ASPECTS = {
   mark: 307.2609 / 265.7392,
@@ -45,8 +51,10 @@ const ASPECTS = {
 
 function syncURL() {
   const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(demoState))
+  for (const [k, v] of Object.entries(demoState)) {
+    if (k === 'scale' && v === 1) continue;
     if (v !== '' && v !== false && v !== 0) p.set(k, v === true ? '1' : v);
+  }
   history.replaceState(null, '', '?' + p.toString());
 }
 
@@ -88,13 +96,19 @@ function applyRenderer() {
 
 function applyEffects() {
   logo.effects = {
-    blur: demoState.blur,
+    fog: demoState.fog,
+    bokeh: demoState.bokeh,
+    rays: demoState.rays,
+    zoom: demoState.zoom,
+    diffuse: demoState.diffuse,
     grain: demoState.grain,
     tint: demoState.tint,
     tintColor: '#' + demoState.tintc,
   };
-  $('blurOut').textContent = demoState.blur + 'px';
-  $('grainOut').textContent = demoState.grain.toFixed(2);
+  for (const k of FX_KEYS) {
+    $(k).value = demoState[k];
+    $(k + 'Out').textContent = demoState[k].toFixed(2);
+  }
   $('tintOut').textContent = demoState.tint.toFixed(2);
   $('tintc').value = '#' + demoState.tintc;
 }
@@ -109,9 +123,11 @@ function applyOptions() {
     duration: demoState.duration,
     stagger: demoState.stagger,
     easing: demoState.easing,
+    scale: demoState.scale,
   };
   logo.toggleAttribute('grid', demoState.grid);
   $('grid').classList.toggle('on', demoState.grid);
+  $('scaleOut').textContent = demoState.scale.toFixed(2) + '×';
   $('gapOut').textContent = demoState.gap.toFixed(2);
   $('spreadOut').textContent = demoState.spread.toFixed(2);
   $('countOut').textContent = demoState.count;
@@ -210,9 +226,29 @@ slider('spread', 'spread', applyOptions);
 slider('duration', 'duration', applyOptions, (v) => +v);
 slider('stagger', 'stagger', applyOptions, (v) => +v);
 slider('count', 'count', applyOptions, (v) => +v);
-slider('blur', 'blur', applyEffects, (v) => +v);
-slider('grain', 'grain', applyEffects);
+slider('scaleR', 'scale', applyOptions);
+for (const k of FX_KEYS) slider(k, k, applyEffects);
 slider('tint', 'tint', applyEffects);
+
+$('scaleReset').addEventListener('click', () => {
+  demoState.scale = 1;
+  $('scaleR').value = 1;
+  applyOptions();
+  syncURL();
+});
+
+const setStack = (on) => {
+  for (const k of FX_KEYS) demoState[k] = on ? 1 : 0;
+  if (!on) demoState.tint = 0;
+  if (on && demoState.renderer !== 'webgl') {
+    demoState.renderer = 'webgl';
+    applyRenderer();
+  }
+  applyEffects();
+  syncURL();
+};
+$('stackOn').addEventListener('click', () => setStack(true));
+$('stackOff').addEventListener('click', () => setStack(false));
 
 $('tintc').addEventListener('input', () => {
   demoState.tintc = $('tintc').value.slice(1);

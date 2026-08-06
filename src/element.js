@@ -19,11 +19,12 @@ class KznLogo extends HTMLElement {
   #canvas = null;
   #dyn = null;
   #ro = null;
-  #dims = null; // { w, h } in cells
+  #dims = null; // { w, h, vw, vh } — generation and view dims, in cells
   #base = null; // seed base
   #step = 0; //   0 = the ideal mark; n>0 = generated formation n
   #engineOpts = {};
   #effectsOpts = null;
+  #scale = 1; // grid zoom: 1 = four cells on the short side (the default web size)
   #resizeTimer = 0;
 
   constructor() {
@@ -83,8 +84,15 @@ class KznLogo extends HTMLElement {
     for (const k of ['placement', 'gap', 'spread', 'edge', 'rankStep', 'count', 'rollouts'])
       if (k in patch) this.#engineOpts[k] = patch[k];
     this.#dyn?.configure(motion);
-    if (Object.keys(patch).some((k) => k in this.#engineOpts) && this.#step > 0)
-      this.#apply(true);
+    let dirty = Object.keys(patch).some((k) => k in this.#engineOpts) && this.#step > 0;
+    if ('scale' in patch && patch.scale !== this.#scale) {
+      this.#scale = Math.max(0.25, Math.min(8, +patch.scale || 1));
+      if (this.#dims) {
+        this.#dims = this.#computeDims(this.#dims.vw / this.#dims.vh);
+        dirty = true;
+      }
+    }
+    if (dirty) this.#apply(true);
   }
 
   /** Advance to the next formation (or restart from a given seed). */
@@ -188,19 +196,42 @@ class KznLogo extends HTMLElement {
       const r = entries[entries.length - 1].contentRect;
       if (r.width < 1 || r.height < 1) return;
       this.#dyn?.resizePx?.(r.width, r.height, window.devicePixelRatio || 1);
-      const ar = r.width / r.height;
-      const w = ar >= 1 ? BASE_CELLS * ar : BASE_CELLS;
-      const h = ar >= 1 ? BASE_CELLS : BASE_CELLS / ar;
       const prev = this.#dims;
-      this.#dims = { w, h };
+      this.#dims = this.#computeDims(r.width / r.height);
+      const d = this.#dims;
       if (!prev) {
         this.#apply(false); // first layout: paint instantly
-      } else if (Math.abs(prev.w - w) > 0.02 || Math.abs(prev.h - h) > 0.02) {
+      } else if (
+        Math.abs(prev.w - d.w) > 0.02 ||
+        Math.abs(prev.h - d.h) > 0.02 ||
+        Math.abs(prev.vw - d.vw) > 0.02 ||
+        Math.abs(prev.vh - d.vh) > 0.02
+      ) {
         clearTimeout(this.#resizeTimer);
         this.#resizeTimer = setTimeout(() => this.#apply(true), 90);
       }
     });
     this.#ro.observe(this);
+  }
+
+  /**
+   * Grid zoom. The view always shows 4/scale cells on its short side; the
+   * formation is generated on at least the standard 4-cell canvas, so
+   * zooming IN (scale > 1) is a pure window — dots grow and bleed off the
+   * edges — while zooming OUT (scale < 1) extends the grid and lets the
+   * dots re-spread across it. Rules and the 0.775 dot-to-cell ratio hold
+   * at every zoom.
+   */
+  #computeDims(ar) {
+    const visShort = BASE_CELLS / this.#scale;
+    const genShort = Math.max(BASE_CELLS, visShort);
+    const wide = ar >= 1;
+    return {
+      w: wide ? genShort * ar : genShort,
+      h: wide ? genShort : genShort / ar,
+      vw: wide ? visShort * ar : visShort,
+      vh: wide ? visShort : visShort / ar,
+    };
   }
 
   #unmount() {
@@ -217,17 +248,23 @@ class KznLogo extends HTMLElement {
   }
 
   #formationForStep() {
-    const { w, h } = this.#dims;
-    if (this.#step === 0)
-      return {
-        w,
-        h,
-        r: R,
-        seed: 'mark',
-        dots: MARK_IDEAL.dots.map((d) => d.slice()),
-        lines: gridLines(w, h),
-      };
-    return generate(w, h, `${this.#base}#${this.#step}`, this.#engineOpts);
+    const { w, h, vw, vh } = this.#dims;
+    const f =
+      this.#step === 0
+        ? {
+            w,
+            h,
+            r: R,
+            seed: 'mark',
+            dots: MARK_IDEAL.dots.map((d) => d.slice()),
+            lines: null,
+          }
+        : generate(w, h, `${this.#base}#${this.#step}`, this.#engineOpts);
+    // the view may be a window into (zoom in) or an extension of (zoom out)
+    // the generation canvas; gridlines cover whichever is larger
+    f.view = [vw, vh];
+    f.lines = gridLines(Math.max(w, vw), Math.max(h, vh));
+    return f;
   }
 
   #apply(animate) {

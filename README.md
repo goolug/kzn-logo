@@ -44,6 +44,10 @@ re-lay out across the wider field. *(Open decision: see below.)*
 <!-- living background: click to re-form -->
 <kzn-logo mode="dynamic" interactive seed="kzn"
           style="position:fixed;inset:0;width:100%;height:100%"></kzn-logo>
+
+<!-- treated (WebGL2): same engine, effect passes on top; falls back to flat -->
+<kzn-logo mode="dynamic" renderer="webgl" interactive seed="kzn"
+          style="position:fixed;inset:0;width:100%;height:100%"></kzn-logo>
 ```
 
 - Ink = CSS `color` (dots are `currentColor`). Size = host CSS.
@@ -51,6 +55,11 @@ re-lay out across the wider field. *(Open decision: see below.)*
   deterministically. No seed → unique per visit.
 - JS API: `.shuffle(seed?)`, `.rest()`, `.formation`, `.exportSVG()`,
   `.options = { placement, gap, spread, count, duration, stagger, easing, motion }`.
+- WebGL: `renderer="webgl"` renders the same formations as a fragment SDF
+  (≤8 distance evals/pixel, DPR-capped, renders only while something moves) —
+  with every effect at 0 it is pixel-parity with the SVG. `.effects =
+  { blur, grain, tint, tintColor, background }` drives the post pipeline;
+  no WebGL2 → silent flat fallback (`data-renderer-active` tells you which).
 - Events: `kzn-shuffle`, `kzn-settle`.
 - Headless: `import { generate, toSVG } from './src/core.js'` — same engine
   server-side for static SVG/print export, and for the WebGL renderer later.
@@ -79,9 +88,12 @@ into `dist/`.
 
 ## Roadmap
 
-1. **WebGL treatment** — replicate the effect stack from the WebGL prototype
-   (share the embed + effect list); same formations feed the shader as
-   instanced quads. Flat SVG stays as fallback and print path.
+1. **The real treatment** — the WebGL renderer + post pipeline exist
+   (scene → blur → grain → duotone, all uniform-driven placeholders).
+   Next: replicate the exact effect stack from the Unicorn Studio prototype —
+   there is no API/connector for Unicorn Studio, so share the embed URL or the
+   exported project JSON and the stack gets rebuilt natively as shader passes.
+   Flat SVG stays as fallback and print path.
 2. Package/minify (`dist/` single file is already embeddable anywhere).
 3. Size-variation mode, if wanted, once the rules for it are decided.
 

@@ -2,18 +2,13 @@
 //
 // Renders formations from core.js as plain <circle> elements (the dot IS a
 // mathematical circle — generating it keeps geometry as data, stays crisp at
-// any scale and DPR, and the same data will later feed the WebGL treatment).
+// any scale and DPR, and the same data feeds the WebGL treatment).
 // Fill is `currentColor`, so the consumer sets the ink with CSS `color`.
 
-import { R, MARK, assignTargets } from './core.js';
+import { MARK, assignTargets } from './core.js';
+import { buildTweens, sampleTweens } from './motion.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-
-const EASINGS = {
-  cubic: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
-  quint: (t) => (t < 0.5 ? 16 * t ** 5 : 1 - Math.pow(-2 * t + 2, 5) / 2),
-  linear: (t) => t,
-};
 
 /** Render the canonical static mark into an <svg> element. */
 export function renderMark(svg) {
@@ -56,9 +51,10 @@ export function toSVG(formationOrMark, { ink = '#1E1E1E', size = 640 } = {}) {
 const fmt = (n) => (Math.round(n * 10000) / 10000).toString();
 
 /**
- * Dynamic renderer. Owns six circles + the construction-grid overlay inside
+ * Dynamic renderer. Owns the circles + the construction-grid overlay inside
  * one <svg>, and animates between formations at display refresh rate.
- * All motion is a single rAF loop mutating cx/cy — six circles, no layout work.
+ * All motion is a single rAF loop mutating cx/cy — a handful of circles,
+ * no layout work, no framework.
  */
 export function createDynamicRenderer(svg, opts = {}) {
   const state = {
@@ -72,9 +68,8 @@ export function createDynamicRenderer(svg, opts = {}) {
     formation: null,
     circles: [],
     current: [], // live [x, y] per circle
-    anims: null, // per-circle {path, t0, dur} while transitioning
+    anims: null,
     raf: 0,
-    gridOn: false,
     onSettle: null,
   };
 
@@ -128,80 +123,11 @@ export function createDynamicRenderer(svg, opts = {}) {
     c.setAttribute('cy', y);
   }
 
-  // --- transition paths --------------------------------------------------
-
-  // The kernel never leaves the crosshair: it orbits it, edge always in
-  // contact, along the shorter arc.
-  function kernelPath(a, b) {
-    const a0 = Math.atan2(a[1], a[0]);
-    let da = Math.atan2(b[1], b[0]) - a0;
-    if (da > Math.PI) da -= 2 * Math.PI;
-    if (da < -Math.PI) da += 2 * Math.PI;
-    const r0 = Math.hypot(a[0], a[1]) || R;
-    const r1 = Math.hypot(b[0], b[1]) || R;
-    return (t) => {
-      const ang = a0 + da * t;
-      const rr = r0 + (r1 - r0) * t;
-      return [rr * Math.cos(ang), rr * Math.sin(ang)];
-    };
-  }
-
-  // Other dots travel straight — unless the line would sweep over the
-  // crosshair, in which case the path bows around it. Nothing ever covers
-  // the center, even mid-flight.
-  function dotPath(a, b) {
-    const clearance = R + 0.1;
-    if (segDistToOrigin(a, b) >= clearance) {
-      return (t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-    }
-    const mx = (a[0] + b[0]) / 2;
-    const my = (a[1] + b[1]) / 2;
-    let dx = mx;
-    let dy = my;
-    let dl = Math.hypot(dx, dy);
-    if (dl < 1e-6) {
-      dx = -(b[1] - a[1]);
-      dy = b[0] - a[0];
-      dl = Math.hypot(dx, dy) || 1;
-    }
-    const push = 2 * clearance + R; // control point far enough to clear center
-    const cx = (dx / dl) * push;
-    const cy = (dy / dl) * push;
-    return (t) => {
-      const u = 1 - t;
-      return [
-        u * u * a[0] + 2 * u * t * cx + t * t * b[0],
-        u * u * a[1] + 2 * u * t * cy + t * t * b[1],
-      ];
-    };
-  }
-
-  function segDistToOrigin(a, b) {
-    const abx = b[0] - a[0];
-    const aby = b[1] - a[1];
-    const l2 = abx * abx + aby * aby;
-    if (l2 < 1e-12) return Math.hypot(a[0], a[1]);
-    let t = -(a[0] * abx + a[1] * aby) / l2;
-    t = Math.max(0, Math.min(1, t));
-    return Math.hypot(a[0] + t * abx, a[1] + t * aby);
-  }
-
-  // --- main loop ---------------------------------------------------------
-
   function tick(now) {
     state.raf = 0;
     if (!state.anims) return;
-    const ease = EASINGS[state.easing] || EASINGS.cubic;
-    let live = false;
-    for (let i = 0; i < state.anims.length; i++) {
-      const a = state.anims[i];
-      if (!a || a.done) continue;
-      const t = Math.min(1, (now - a.t0) / a.dur);
-      if (t < 1) live = true;
-      else a.done = true;
-      const [x, y] = a.path(t < 0 ? 0 : ease(t));
-      put(i, x, y);
-    }
+    const { pts, live } = sampleTweens(state.anims, now, state.easing);
+    pts.forEach(([x, y], i) => put(i, x, y));
     if (live) state.raf = requestAnimationFrame(tick);
     else {
       state.anims = null;
@@ -226,9 +152,7 @@ export function createDynamicRenderer(svg, opts = {}) {
         state.motion === 'instant' ||
         state.duration <= 0;
 
-      const targets = first
-        ? f.dots
-        : assignTargets(state.current, f.dots);
+      const targets = first ? f.dots : assignTargets(state.current, f.dots);
 
       if (instant) {
         if (state.raf) cancelAnimationFrame(state.raf);
@@ -238,21 +162,16 @@ export function createDynamicRenderer(svg, opts = {}) {
         return;
       }
 
-      const now = performance.now();
-      state.anims = targets.map((to, i) => {
-        const from = state.current[i] ?? to;
-        const path = i === 0 ? kernelPath(from, to) : dotPath(from, to);
-        return { path, t0: now + (i === 0 ? 0 : i * state.stagger), dur: state.duration, done: false };
-      });
+      state.anims = buildTweens(state.current, targets, state, performance.now());
       if (!state.raf) state.raf = requestAnimationFrame(tick);
     },
     showGrid(on) {
-      state.gridOn = !!on;
       gridG.setAttribute('display', on ? 'inline' : 'none');
     },
     configure(patch) {
       Object.assign(state, patch);
     },
+    resizePx() {}, // SVG scales by itself
     get formation() {
       return state.formation;
     },

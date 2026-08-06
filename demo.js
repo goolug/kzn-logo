@@ -1,6 +1,6 @@
 // kzn-logo — demo app. Wires the controls to <kzn-logo> and mirrors the
 // state into the URL, so any configuration is a shareable / screenshotable
-// link (e.g. ?aspect=wide&grid=1&theme=dark&seed=kzn).
+// link (e.g. ?renderer=webgl&blur=40&aspect=wide&theme=dark&seed=kzn).
 
 import './src/element.js';
 import { defaults } from './src/core.js';
@@ -28,6 +28,11 @@ const demoState = {
   spread: +(params.get('spread') || defaults.spread),
   count: +(params.get('count') || defaults.count),
   step: +(params.get('step') || 0),
+  renderer: params.get('renderer') || 'svg',
+  blur: +(params.get('blur') || 0),
+  grain: +(params.get('grain') || 0),
+  tint: +(params.get('tint') || 0),
+  tintc: params.get('tintc') || 'AFA8D8', // hex without '#'
 };
 
 const ASPECTS = {
@@ -41,13 +46,14 @@ const ASPECTS = {
 function syncURL() {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(demoState))
-    if (v !== '' && v !== false) p.set(k, v === true ? '1' : v);
+    if (v !== '' && v !== false && v !== 0) p.set(k, v === true ? '1' : v);
   history.replaceState(null, '', '?' + p.toString());
 }
 
 function applyTheme() {
   document.documentElement.dataset.theme = demoState.theme;
   $('theme').textContent = demoState.theme === 'light' ? 'dark ◐' : 'light ◑';
+  logo.refreshInk();
 }
 
 function applyAspect() {
@@ -67,6 +73,32 @@ function applyAspect() {
     b.classList.toggle('on', b.dataset.aspect === demoState.aspect);
 }
 
+function applyRenderer() {
+  if (demoState.renderer === 'webgl') logo.setAttribute('renderer', 'webgl');
+  else logo.removeAttribute('renderer');
+  $('renderer').value = demoState.renderer;
+  $('fxRows').classList.toggle('dim', demoState.renderer !== 'webgl');
+  // reflect what actually mounted (webgl may fall back to svg)
+  requestAnimationFrame(() => {
+    const active = logo.dataset.rendererActive || 'svg';
+    if (demoState.renderer === 'webgl' && active === 'svg')
+      $('stats').textContent = 'webgl unavailable — flat fallback';
+  });
+}
+
+function applyEffects() {
+  logo.effects = {
+    blur: demoState.blur,
+    grain: demoState.grain,
+    tint: demoState.tint,
+    tintColor: '#' + demoState.tintc,
+  };
+  $('blurOut').textContent = demoState.blur + 'px';
+  $('grainOut').textContent = demoState.grain.toFixed(2);
+  $('tintOut').textContent = demoState.tint.toFixed(2);
+  $('tintc').value = '#' + demoState.tintc;
+}
+
 function applyOptions() {
   logo.options = {
     placement: demoState.placement,
@@ -82,6 +114,7 @@ function applyOptions() {
   $('grid').classList.toggle('on', demoState.grid);
   $('gapOut').textContent = demoState.gap.toFixed(2);
   $('spreadOut').textContent = demoState.spread.toFixed(2);
+  $('countOut').textContent = demoState.count;
   $('durOut').textContent = demoState.duration + 'ms';
   $('stagOut').textContent = demoState.stagger + 'ms';
 }
@@ -151,39 +184,41 @@ $('grid').addEventListener('click', () => {
   syncURL();
 });
 
-$('placement').value = demoState.placement;
-$('placement').addEventListener('change', () => {
-  demoState.placement = $('placement').value;
-  applyOptions();
-  syncURL();
-});
-
-$('motion').value = demoState.motion;
-$('motion').addEventListener('change', () => {
-  demoState.motion = $('motion').value;
-  applyOptions();
-  syncURL();
-});
-$('easing').value = demoState.easing;
-$('easing').addEventListener('change', () => {
-  demoState.easing = $('easing').value;
-  applyOptions();
-  syncURL();
-});
-
-const slider = (id, key, parse = parseFloat) => {
+const select = (id, key, apply) => {
   $(id).value = demoState[key];
-  $(id).addEventListener('input', () => {
-    demoState[key] = parse($(id).value);
-    applyOptions();
+  $(id).addEventListener('change', () => {
+    demoState[key] = $(id).value;
+    apply();
     syncURL();
   });
 };
-slider('gap', 'gap');
-slider('spread', 'spread');
-slider('duration', 'duration', (v) => +v);
-slider('stagger', 'stagger', (v) => +v);
-slider('count', 'count', (v) => +v);
+select('placement', 'placement', applyOptions);
+select('motion', 'motion', applyOptions);
+select('easing', 'easing', applyOptions);
+select('renderer', 'renderer', applyRenderer);
+
+const slider = (id, key, apply, parse = parseFloat) => {
+  $(id).value = demoState[key];
+  $(id).addEventListener('input', () => {
+    demoState[key] = parse($(id).value);
+    apply();
+    syncURL();
+  });
+};
+slider('gap', 'gap', applyOptions);
+slider('spread', 'spread', applyOptions);
+slider('duration', 'duration', applyOptions, (v) => +v);
+slider('stagger', 'stagger', applyOptions, (v) => +v);
+slider('count', 'count', applyOptions, (v) => +v);
+slider('blur', 'blur', applyEffects, (v) => +v);
+slider('grain', 'grain', applyEffects);
+slider('tint', 'tint', applyEffects);
+
+$('tintc').addEventListener('input', () => {
+  demoState.tintc = $('tintc').value.slice(1);
+  applyEffects();
+  syncURL();
+});
 
 const download = (name, text) => {
   const a = document.createElement('a');
@@ -196,7 +231,10 @@ $('dlMark').addEventListener('click', () =>
   download('kaizen-mark.svg', toSVG(MARK, { ink: getInk() }))
 );
 $('dlCurrent').addEventListener('click', () =>
-  download(`kaizen-${logo.seed.replace('#', '-')}.svg`, logo.exportSVG({ ink: getInk() }))
+  download(
+    `kaizen-${logo.seed.replace('#', '-')}.svg`,
+    logo.exportSVG({ ink: getInk() })
+  )
 );
 $('copyLink').addEventListener('click', async () => {
   await navigator.clipboard.writeText(location.href);
@@ -211,7 +249,9 @@ const getInk = () =>
 applyTheme();
 applyAspect();
 logo.setAttribute('seed', demoState.seed);
+applyRenderer();
 applyOptions();
+applyEffects();
 if (demoState.step > 0) {
   // reproduce a linked formation without animating through the sequence
   logo.shuffle(demoState.seed);
@@ -222,16 +262,27 @@ if (demoState.step > 0) {
 if (params.get('debug')) {
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
-      const svg = logo.shadowRoot.querySelector('svg');
+      const el = logo.shadowRoot.querySelector(
+        logo.dataset.rendererActive === 'webgl' ? 'canvas' : 'svg'
+      );
       const sr = stage.getBoundingClientRect();
-      const vr = svg.getBoundingClientRect();
+      const vr = el.getBoundingClientRect();
       const f = logo.formation;
       const pre = document.createElement('pre');
       pre.id = 'debug';
+      const overflowers = [...document.querySelectorAll('*')]
+        .filter((e) => e.getBoundingClientRect().width > innerWidth + 1)
+        .map(
+          (e) =>
+            `${e.tagName.toLowerCase()}${e.id ? '#' + e.id : ''}.${[...e.classList].join('.')}=${Math.round(e.getBoundingClientRect().width)}`
+        )
+        .slice(0, 10);
       pre.textContent = JSON.stringify({
+        renderer: logo.dataset.rendererActive,
+        innerWidth,
+        overflowers,
         stage: [sr.x, sr.y, sr.width, sr.height].map((n) => +n.toFixed(1)),
-        svg: [vr.x, vr.y, vr.width, vr.height].map((n) => +n.toFixed(1)),
-        viewBox: svg.getAttribute('viewBox'),
+        view: [vr.x, vr.y, vr.width, vr.height].map((n) => +n.toFixed(1)),
         seed: logo.seed,
         dots: f?.dots?.map((d) => d.map((n) => +n.toFixed(3))),
       });

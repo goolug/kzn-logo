@@ -8,19 +8,22 @@
 
 import { generate, gridLines, MARK, MARK_IDEAL, R } from './core.js';
 import { renderMark, createDynamicRenderer, toSVG } from './svg.js';
+import { createWebGLRenderer } from './webgl.js';
 
 const BASE_CELLS = 4; // cells on the short side — the 4×4 heritage
 
 class KznLogo extends HTMLElement {
-  static observedAttributes = ['mode', 'seed', 'grid', 'interactive'];
+  static observedAttributes = ['mode', 'seed', 'grid', 'interactive', 'renderer'];
 
   #svg = null;
+  #canvas = null;
   #dyn = null;
   #ro = null;
   #dims = null; // { w, h } in cells
   #base = null; // seed base
   #step = 0; //   0 = the ideal mark; n>0 = generated formation n
   #engineOpts = {};
+  #effectsOpts = null;
   #resizeTimer = 0;
 
   constructor() {
@@ -29,7 +32,8 @@ class KznLogo extends HTMLElement {
     const style = document.createElement('style');
     style.textContent =
       ':host{display:block;color:inherit}:host([interactive]){cursor:pointer}' +
-      'svg{display:block;width:100%;height:100%}';
+      'svg,canvas{display:block;width:100%;height:100%}' +
+      '[hidden]{display:none !important}';
     this.#svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.#svg.setAttribute('aria-hidden', 'true');
     root.append(style, this.#svg);
@@ -60,6 +64,7 @@ class KznLogo extends HTMLElement {
       this.#step = 0;
       this.#apply(true);
     } else if (name === 'grid') this.#dyn?.showGrid(newV !== null);
+    else if (name === 'renderer') this.#mount();
     else if (name === 'interactive') {
       if (newV !== null) this.setAttribute('tabindex', '0');
       else this.removeAttribute('tabindex');
@@ -98,6 +103,26 @@ class KznLogo extends HTMLElement {
     this.#apply(true);
   }
 
+  /**
+   * Post-effect parameters (WebGL renderer only; ignored by SVG):
+   * { blur: px, grain: 0..1, tint: 0..1, tintColor: '#…', background: '#…' }.
+   * All zero by default — flat parity. Placeholder stack until the Unicorn
+   * Studio effect chain is replicated.
+   */
+  set effects(patch) {
+    this.#effectsOpts = { ...(this.#effectsOpts || {}), ...patch };
+    this.#dyn?.setEffects?.(this.#effectsOpts);
+  }
+
+  get effects() {
+    return this.#effectsOpts;
+  }
+
+  /** Re-read CSS ink/ground colors (call after a theme change). */
+  refreshInk() {
+    this.#dyn?.refreshInk?.();
+  }
+
   get formation() {
     return this.mode === 'dynamic' ? this.#dyn?.formation : MARK;
   }
@@ -129,10 +154,32 @@ class KznLogo extends HTMLElement {
   #mount() {
     this.#unmount();
     if (this.mode === 'static') {
+      this.#svg.toggleAttribute('hidden', false);
       renderMark(this.#svg);
       return;
     }
-    this.#dyn = createDynamicRenderer(this.#svg);
+    // dynamic: WebGL when asked for and available, flat SVG otherwise.
+    // A fresh canvas per mount — a lost/destroyed context can't be revived.
+    if (this.getAttribute('renderer') === 'webgl') {
+      this.#canvas = document.createElement('canvas');
+      this.#canvas.setAttribute('aria-hidden', 'true');
+      this.shadowRoot.append(this.#canvas);
+      try {
+        this.#dyn = createWebGLRenderer(this.#canvas, this);
+      } catch {
+        this.#dyn = null;
+      }
+      if (!this.#dyn) {
+        this.#canvas.remove();
+        this.#canvas = null;
+      }
+    }
+    const usingGL = !!this.#dyn;
+    if (!usingGL) this.#dyn = createDynamicRenderer(this.#svg);
+    this.#svg.toggleAttribute('hidden', usingGL);
+    this.dataset.rendererActive = usingGL ? 'webgl' : 'svg';
+    if (usingGL && this.#effectsOpts) this.#dyn.setEffects(this.#effectsOpts);
+
     this.#dyn.onSettle = () =>
       this.dispatchEvent(
         new CustomEvent('kzn-settle', { bubbles: true, composed: true })
@@ -140,6 +187,7 @@ class KznLogo extends HTMLElement {
     this.#ro = new ResizeObserver((entries) => {
       const r = entries[entries.length - 1].contentRect;
       if (r.width < 1 || r.height < 1) return;
+      this.#dyn?.resizePx?.(r.width, r.height, window.devicePixelRatio || 1);
       const ar = r.width / r.height;
       const w = ar >= 1 ? BASE_CELLS * ar : BASE_CELLS;
       const h = ar >= 1 ? BASE_CELLS : BASE_CELLS / ar;
@@ -163,6 +211,9 @@ class KznLogo extends HTMLElement {
     this.#dyn = null;
     this.#dims = null;
     this.#svg.textContent = '';
+    this.#canvas?.remove();
+    this.#canvas = null;
+    delete this.dataset.rendererActive;
   }
 
   #formationForStep() {

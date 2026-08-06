@@ -93,6 +93,15 @@
     width: 110px;
   }
   input[type='range'] { accent-color: var(--ink); width: 100%; margin: 0; }
+  input[type='color'] {
+    inline-size: 44px;
+    block-size: 28px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: none;
+    padding: 2px;
+  }
+  #fxRows.dim { opacity: 0.4; pointer-events: none; }
 
   .panel { display: flex; flex-direction: column; gap: 22px; }
   .group { border-top: 1px solid var(--line); padding-top: 14px; }
@@ -226,6 +235,43 @@
         <input type="range" id="stagger" min="0" max="140" step="5" />
         <output id="stagOut"></output>
       </div>
+    </div>
+
+    <div class="group">
+      <h2>Treatment</h2>
+      <div class="row">
+        <label for="renderer">renderer</label>
+        <select id="renderer">
+          <option value="svg">flat svg</option>
+          <option value="webgl">webgl</option>
+        </select>
+      </div>
+      <div id="fxRows">
+        <div class="row">
+          <label for="blur">blur</label>
+          <input type="range" id="blur" min="0" max="80" step="1" />
+          <output id="blurOut"></output>
+        </div>
+        <div class="row">
+          <label for="grain">grain</label>
+          <input type="range" id="grain" min="0" max="0.5" step="0.01" />
+          <output id="grainOut"></output>
+        </div>
+        <div class="row">
+          <label for="tint">tint</label>
+          <input type="range" id="tint" min="0" max="1" step="0.01" />
+          <output id="tintOut"></output>
+        </div>
+        <div class="row">
+          <label for="tintc">tint color</label>
+          <input type="color" id="tintc" value="#AFA8D8" />
+        </div>
+      </div>
+      <p class="note">
+        Placeholder passes, wired end-to-end (blur → grain → duotone). The
+        real stack gets replicated from the Unicorn Studio prototype — share
+        the embed/export. All zeros = exact flat parity.
+      </p>
     </div>
 
     <div class="group">

@@ -16,7 +16,7 @@ function strip(src) {
     .trim();
 }
 
-const order = ['src/core.js', 'src/svg.js', 'src/element.js'];
+const order = ['src/core.js', 'src/motion.js', 'src/svg.js', 'src/webgl.js', 'src/element.js'];
 const parts = [];
 for (const p of order) parts.push(`// ---- ${p} ----\n${strip(await read(p))}`);
 const lib = parts.join('\n\n');

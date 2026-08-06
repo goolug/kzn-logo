@@ -299,22 +299,127 @@ function assignTargets(current, target) {
   return out;
 }
 
-// ---- src/svg.js ----
-// kzn-logo — flat SVG renderer + animator. No dependencies.
+// ---- src/motion.js ----
+// kzn-logo — shared motion math. Pure functions, no DOM: both the SVG and
+// WebGL renderers move dots through exactly these paths.
 //
-// Renders formations from core.js as plain <circle> elements (the dot IS a
-// mathematical circle — generating it keeps geometry as data, stays crisp at
-// any scale and DPR, and the same data will later feed the WebGL treatment).
-// Fill is `currentColor`, so the consumer sets the ink with CSS `color`.
+// Two rules carry over from the mark's concept into motion itself:
+//   · the kernel never leaves the crosshair — it orbits it, edge always in
+//     contact, along the shorter arc
+//   · no dot ever covers the center, even mid-flight — a straight path that
+//     would sweep the crosshair bows around it instead
 
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const EASINGS = {
   cubic: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
   quint: (t) => (t < 0.5 ? 16 * t ** 5 : 1 - Math.pow(-2 * t + 2, 5) / 2),
   linear: (t) => t,
 };
+
+/** Orbit path for the kernel: angle lerps along the shorter arc, radius R→R. */
+function kernelPath(a, b) {
+  const a0 = Math.atan2(a[1], a[0]);
+  let da = Math.atan2(b[1], b[0]) - a0;
+  if (da > Math.PI) da -= 2 * Math.PI;
+  if (da < -Math.PI) da += 2 * Math.PI;
+  const r0 = Math.hypot(a[0], a[1]) || R;
+  const r1 = Math.hypot(b[0], b[1]) || R;
+  return (t) => {
+    const ang = a0 + da * t;
+    const rr = r0 + (r1 - r0) * t;
+    return [rr * Math.cos(ang), rr * Math.sin(ang)];
+  };
+}
+
+/** Straight path — bowed around the crosshair when it would sweep it. */
+function dotPath(a, b) {
+  const clearance = R + 0.1;
+  const near = segNearestToOrigin(a, b);
+  const nl = Math.hypot(near[0], near[1]);
+  if (nl >= clearance) {
+    return (t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+  // push the control point along the origin→segment shortest vector — that is
+  // perpendicular to the travel, so the curve actually swerves sideways
+  let dx = near[0];
+  let dy = near[1];
+  let dl = nl;
+  if (dl < 1e-4) {
+    dx = -(b[1] - a[1]);
+    dy = b[0] - a[0];
+    dl = Math.hypot(dx, dy) || 1;
+  }
+  const push = 2 * clearance + R; // control point far enough to clear center
+  const cx = (dx / dl) * push;
+  const cy = (dy / dl) * push;
+  return (t) => {
+    const u = 1 - t;
+    return [
+      u * u * a[0] + 2 * u * t * cx + t * t * b[0],
+      u * u * a[1] + 2 * u * t * cy + t * t * b[1],
+    ];
+  };
+}
+
+function segNearestToOrigin(a, b) {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const l2 = abx * abx + aby * aby;
+  if (l2 < 1e-12) return [a[0], a[1]];
+  let t = -(a[0] * abx + a[1] * aby) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return [a[0] + t * abx, a[1] + t * aby];
+}
+
+/**
+ * Build per-dot tweens from current positions to targets (index 0 = kernel).
+ * `now` is the caller's clock so renderers stay testable.
+ */
+function buildTweens(current, targets, { duration, stagger }, now) {
+  return targets.map((to, i) => {
+    const from = current[i] ?? to;
+    const path = i === 0 ? kernelPath(from, to) : dotPath(from, to);
+    return {
+      path,
+      t0: now + (i === 0 ? 0 : i * stagger),
+      dur: duration,
+      done: false,
+    };
+  });
+}
+
+/**
+ * Sample all tweens at `now`. Returns { pts, live }: positions per dot and
+ * whether anything is still in flight. Marks finished tweens done.
+ */
+function sampleTweens(anims, now, easing) {
+  const ease = EASINGS[easing] || EASINGS.cubic;
+  const pts = new Array(anims.length);
+  let live = false;
+  for (let i = 0; i < anims.length; i++) {
+    const a = anims[i];
+    let t = (now - a.t0) / a.dur;
+    if (t < 1) live = true;
+    else {
+      t = 1;
+      a.done = true;
+    }
+    pts[i] = a.path(t <= 0 ? 0 : ease(t));
+  }
+  return { pts, live };
+}
+
+// ---- src/svg.js ----
+// kzn-logo — flat SVG renderer + animator. No dependencies.
+//
+// Renders formations from core.js as plain <circle> elements (the dot IS a
+// mathematical circle — generating it keeps geometry as data, stays crisp at
+// any scale and DPR, and the same data feeds the WebGL treatment).
+// Fill is `currentColor`, so the consumer sets the ink with CSS `color`.
+
+
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** Render the canonical static mark into an <svg> element. */
 function renderMark(svg) {
@@ -357,9 +462,10 @@ function toSVG(formationOrMark, { ink = '#1E1E1E', size = 640 } = {}) {
 const fmt = (n) => (Math.round(n * 10000) / 10000).toString();
 
 /**
- * Dynamic renderer. Owns six circles + the construction-grid overlay inside
+ * Dynamic renderer. Owns the circles + the construction-grid overlay inside
  * one <svg>, and animates between formations at display refresh rate.
- * All motion is a single rAF loop mutating cx/cy — six circles, no layout work.
+ * All motion is a single rAF loop mutating cx/cy — a handful of circles,
+ * no layout work, no framework.
  */
 function createDynamicRenderer(svg, opts = {}) {
   const state = {
@@ -373,9 +479,8 @@ function createDynamicRenderer(svg, opts = {}) {
     formation: null,
     circles: [],
     current: [], // live [x, y] per circle
-    anims: null, // per-circle {path, t0, dur} while transitioning
+    anims: null,
     raf: 0,
-    gridOn: false,
     onSettle: null,
   };
 
@@ -429,80 +534,11 @@ function createDynamicRenderer(svg, opts = {}) {
     c.setAttribute('cy', y);
   }
 
-  // --- transition paths --------------------------------------------------
-
-  // The kernel never leaves the crosshair: it orbits it, edge always in
-  // contact, along the shorter arc.
-  function kernelPath(a, b) {
-    const a0 = Math.atan2(a[1], a[0]);
-    let da = Math.atan2(b[1], b[0]) - a0;
-    if (da > Math.PI) da -= 2 * Math.PI;
-    if (da < -Math.PI) da += 2 * Math.PI;
-    const r0 = Math.hypot(a[0], a[1]) || R;
-    const r1 = Math.hypot(b[0], b[1]) || R;
-    return (t) => {
-      const ang = a0 + da * t;
-      const rr = r0 + (r1 - r0) * t;
-      return [rr * Math.cos(ang), rr * Math.sin(ang)];
-    };
-  }
-
-  // Other dots travel straight — unless the line would sweep over the
-  // crosshair, in which case the path bows around it. Nothing ever covers
-  // the center, even mid-flight.
-  function dotPath(a, b) {
-    const clearance = R + 0.1;
-    if (segDistToOrigin(a, b) >= clearance) {
-      return (t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-    }
-    const mx = (a[0] + b[0]) / 2;
-    const my = (a[1] + b[1]) / 2;
-    let dx = mx;
-    let dy = my;
-    let dl = Math.hypot(dx, dy);
-    if (dl < 1e-6) {
-      dx = -(b[1] - a[1]);
-      dy = b[0] - a[0];
-      dl = Math.hypot(dx, dy) || 1;
-    }
-    const push = 2 * clearance + R; // control point far enough to clear center
-    const cx = (dx / dl) * push;
-    const cy = (dy / dl) * push;
-    return (t) => {
-      const u = 1 - t;
-      return [
-        u * u * a[0] + 2 * u * t * cx + t * t * b[0],
-        u * u * a[1] + 2 * u * t * cy + t * t * b[1],
-      ];
-    };
-  }
-
-  function segDistToOrigin(a, b) {
-    const abx = b[0] - a[0];
-    const aby = b[1] - a[1];
-    const l2 = abx * abx + aby * aby;
-    if (l2 < 1e-12) return Math.hypot(a[0], a[1]);
-    let t = -(a[0] * abx + a[1] * aby) / l2;
-    t = Math.max(0, Math.min(1, t));
-    return Math.hypot(a[0] + t * abx, a[1] + t * aby);
-  }
-
-  // --- main loop ---------------------------------------------------------
-
   function tick(now) {
     state.raf = 0;
     if (!state.anims) return;
-    const ease = EASINGS[state.easing] || EASINGS.cubic;
-    let live = false;
-    for (let i = 0; i < state.anims.length; i++) {
-      const a = state.anims[i];
-      if (!a || a.done) continue;
-      const t = Math.min(1, (now - a.t0) / a.dur);
-      if (t < 1) live = true;
-      else a.done = true;
-      const [x, y] = a.path(t < 0 ? 0 : ease(t));
-      put(i, x, y);
-    }
+    const { pts, live } = sampleTweens(state.anims, now, state.easing);
+    pts.forEach(([x, y], i) => put(i, x, y));
     if (live) state.raf = requestAnimationFrame(tick);
     else {
       state.anims = null;
@@ -527,9 +563,7 @@ function createDynamicRenderer(svg, opts = {}) {
         state.motion === 'instant' ||
         state.duration <= 0;
 
-      const targets = first
-        ? f.dots
-        : assignTargets(state.current, f.dots);
+      const targets = first ? f.dots : assignTargets(state.current, f.dots);
 
       if (instant) {
         if (state.raf) cancelAnimationFrame(state.raf);
@@ -539,21 +573,16 @@ function createDynamicRenderer(svg, opts = {}) {
         return;
       }
 
-      const now = performance.now();
-      state.anims = targets.map((to, i) => {
-        const from = state.current[i] ?? to;
-        const path = i === 0 ? kernelPath(from, to) : dotPath(from, to);
-        return { path, t0: now + (i === 0 ? 0 : i * state.stagger), dur: state.duration, done: false };
-      });
+      state.anims = buildTweens(state.current, targets, state, performance.now());
       if (!state.raf) state.raf = requestAnimationFrame(tick);
     },
     showGrid(on) {
-      state.gridOn = !!on;
       gridG.setAttribute('display', on ? 'inline' : 'none');
     },
     configure(patch) {
       Object.assign(state, patch);
     },
+    resizePx() {}, // SVG scales by itself
     get formation() {
       return state.formation;
     },
@@ -570,6 +599,417 @@ function createDynamicRenderer(svg, opts = {}) {
   };
 }
 
+// ---- src/webgl.js ----
+// kzn-logo — WebGL2 renderer. Same contract as the SVG dynamic renderer,
+// same formations, same motion math — plus a post-processing pipeline for
+// the treated look (page backgrounds, hero moments).
+//
+// With every effect at 0 the output is pixel-parity with the flat SVG:
+// antialiased currentColor dots on transparency, straight to screen.
+// The effect passes below (blur → grain → duotone) are SCAFFOLD placeholders
+// wired end-to-end so the real stack — replicated from the Unicorn Studio
+// prototype — can land as shader work without touching the engine.
+//
+// Perf posture: fragment SDF over ≤8 dots (no geometry), half-resolution
+// blur chain, renders only while something changes (tween or animated
+// grain), DPR capped at 2.
+
+
+
+const VS = `#version 300 es
+void main() {
+  vec2 v = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(v * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+// dots + construction grid, drawn as one signed-distance field
+const SCENE_FS = `#version 300 es
+precision highp float;
+uniform vec2 uRes;      // px
+uniform vec2 uHalf;     // canvas half-size, in cells
+uniform vec3 uDots[8];  // x, y (cells, center origin, y down), radius
+uniform int uCount;
+uniform vec4 uInk;
+uniform vec4 uBg;
+uniform float uOpaque;  // 1 = composite on uBg (effects), 0 = transparent
+uniform float uGrid;
+out vec4 outColor;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes * 2.0 - 1.0;
+  vec2 p = vec2(uv.x * uHalf.x, -uv.y * uHalf.y);
+  float pxPerCell = uRes.x / (2.0 * uHalf.x);
+  float aa = 1.0 / pxPerCell;
+
+  float cov = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (i >= uCount) break;
+    float d = length(p - uDots[i].xy) - uDots[i].z;
+    cov = max(cov, 1.0 - smoothstep(-aa, aa, d));
+  }
+
+  float a = cov;
+  if (uGrid > 0.5) {
+    float lw = max(uHalf.x, uHalf.y) * 2.0 / 420.0; // hairline, as in SVG
+    vec2 nearest = vec2(floor(p.x + 0.5), floor(p.y + 0.5));
+    vec2 dist = abs(p - nearest);
+    float lx = (abs(nearest.x) <= uHalf.x - 0.001)
+      ? 1.0 - smoothstep(lw * 0.5, lw * 0.5 + aa, dist.x) : 0.0;
+    float ly = (abs(nearest.y) <= uHalf.y - 0.001)
+      ? 1.0 - smoothstep(lw * 0.5, lw * 0.5 + aa, dist.y) : 0.0;
+    float cross = (1.0 - smoothstep(lw * 2.4, lw * 2.4 + aa, length(p))) * 0.5;
+    a = max(a, max(max(lx, ly) * 0.18, cross));
+  }
+
+  if (uOpaque > 0.5) {
+    outColor = vec4(mix(uBg.rgb, uInk.rgb, a), 1.0);
+  } else {
+    outColor = vec4(uInk.rgb * a, a); // premultiplied
+  }
+}`;
+
+const BLUR_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;    // px of the target
+uniform vec2 uDir;
+uniform float uRadius;
+out vec4 outColor;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec2 s = uDir * (uRadius / 4.0) / uRes;
+  vec4 c = texture(uTex, uv) * 0.2026;
+  c += (texture(uTex, uv + s * 1.0) + texture(uTex, uv - s * 1.0)) * 0.1790;
+  c += (texture(uTex, uv + s * 2.0) + texture(uTex, uv - s * 2.0)) * 0.1240;
+  c += (texture(uTex, uv + s * 3.0) + texture(uTex, uv - s * 3.0)) * 0.0672;
+  c += (texture(uTex, uv + s * 4.0) + texture(uTex, uv - s * 4.0)) * 0.0285;
+  outColor = c;
+}`;
+
+const POST_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uGrain;
+uniform float uTime;
+uniform float uTintAmt;
+uniform vec3 uTintInk;  // tone the dots drift toward
+uniform vec3 uTintBg;   // tone the ground drifts toward
+out vec4 outColor;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec4 c = texture(uTex, uv);
+  float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+  c.rgb = mix(c.rgb, mix(uTintInk, uTintBg, lum), uTintAmt);
+  vec2 cell = floor(gl_FragCoord.xy) + vec2(uTime * 60.0, uTime * 47.0);
+  float n = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+  c.rgb += (n - 0.5) * uGrain;
+  outColor = vec4(c.rgb, 1.0);
+}`;
+
+/** '#rrggbb' | 'rgb(a)' string → [r,g,b,a] in 0..1 */
+function parseColor(str) {
+  if (!str) return [0, 0, 0, 1];
+  str = str.trim();
+  if (str[0] === '#') {
+    const h = str.slice(1);
+    const n = parseInt(h.length === 3 ? [...h].map((c) => c + c).join('') : h, 16);
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1];
+  }
+  const m = str.match(/rgba?\(([^)]+)\)/);
+  if (!m) return [0, 0, 0, 1];
+  const v = m[1].split(',').map(parseFloat);
+  return [v[0] / 255, v[1] / 255, v[2] / 255, v.length > 3 ? v[3] : 1];
+}
+
+function createWebGLRenderer(canvas, host, opts = {}) {
+  const gl = canvas.getContext('webgl2', {
+    alpha: true,
+    premultipliedAlpha: true,
+    antialias: false,
+    depth: false,
+    stencil: false,
+  });
+  if (!gl) return null;
+
+  function compile(fsSrc) {
+    const p = gl.createProgram();
+    for (const [type, src] of [
+      [gl.VERTEX_SHADER, VS],
+      [gl.FRAGMENT_SHADER, fsSrc],
+    ]) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+        throw new Error('kzn-logo shader: ' + gl.getShaderInfoLog(s));
+      gl.attachShader(p, s);
+    }
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+      throw new Error('kzn-logo link: ' + gl.getProgramInfoLog(p));
+    const uniforms = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) {
+      const info = gl.getActiveUniform(p, i);
+      uniforms[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name);
+    }
+    return { p, u: uniforms };
+  }
+
+  const scene = compile(SCENE_FS);
+  const blur = compile(BLUR_FS);
+  const post = compile(POST_FS);
+
+  const state = {
+    duration: opts.duration ?? 750,
+    stagger: opts.stagger ?? 45,
+    easing: opts.easing ?? 'cubic',
+    motion: opts.motion ?? 'glide',
+    reduced:
+      typeof matchMedia === 'function' &&
+      matchMedia('(prefers-reduced-motion: reduce)').matches,
+    formation: null,
+    current: [],
+    anims: null,
+    raf: 0,
+    gridOn: false,
+    onSettle: null,
+    ink: [0.12, 0.12, 0.12, 1],
+    bg: [1, 0.984, 0.973, 1],
+    effects: { blur: 0, grain: 0, tint: 0, tintColor: '#AFA8D8', background: null },
+    pxW: 0,
+    pxH: 0,
+    t0: performance.now(),
+  };
+
+  // --- framebuffers -------------------------------------------------------
+  let texScene = null, fboScene = null;
+  let texA = null, fboA = null, texB = null, fboB = null;
+
+  function makeTarget(w, h) {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const f = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    return [t, f];
+  }
+
+  function allocTargets() {
+    for (const t of [texScene, texA, texB]) if (t) gl.deleteTexture(t);
+    for (const f of [fboScene, fboA, fboB]) if (f) gl.deleteFramebuffer(f);
+    [texScene, fboScene] = makeTarget(state.pxW, state.pxH);
+    const hw = Math.max(1, state.pxW >> 1);
+    const hh = Math.max(1, state.pxH >> 1);
+    [texA, fboA] = makeTarget(hw, hh);
+    [texB, fboB] = makeTarget(hw, hh);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  // --- drawing ------------------------------------------------------------
+  const effectsActive = () =>
+    state.effects.blur > 0 || state.effects.grain > 0 || state.effects.tint > 0;
+
+  function drawScene(opaque) {
+    const f = state.formation;
+    gl.useProgram(scene.p);
+    gl.uniform2f(scene.u.uRes, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.uniform2f(scene.u.uHalf, f.w / 2, f.h / 2);
+    const flat = new Float32Array(24);
+    const n = Math.min(state.current.length, 8);
+    for (let i = 0; i < n; i++) {
+      flat[i * 3] = state.current[i][0];
+      flat[i * 3 + 1] = state.current[i][1];
+      flat[i * 3 + 2] = f.r;
+    }
+    gl.uniform3fv(scene.u.uDots, flat);
+    gl.uniform1i(scene.u.uCount, n);
+    gl.uniform4fv(scene.u.uInk, state.ink);
+    gl.uniform4fv(scene.u.uBg, state.bg);
+    gl.uniform1f(scene.u.uOpaque, opaque ? 1 : 0);
+    gl.uniform1f(scene.u.uGrid, state.gridOn ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  function blurPass(fbo, w, h, tex, dirX, dirY, radius) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(blur.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(blur.u.uTex, 0);
+    gl.uniform2f(blur.u.uRes, w, h);
+    gl.uniform2f(blur.u.uDir, dirX, dirY);
+    gl.uniform1f(blur.u.uRadius, radius);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  function draw() {
+    if (!state.formation || !state.pxW) return;
+    if (!effectsActive()) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, state.pxW, state.pxH);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      drawScene(false);
+      return;
+    }
+    // scene → full-res texture, composited on the ground color
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fboScene);
+    gl.viewport(0, 0, state.pxW, state.pxH);
+    drawScene(true);
+
+    // blur chain at half res
+    const hw = Math.max(1, state.pxW >> 1);
+    const hh = Math.max(1, state.pxH >> 1);
+    let tex = texScene;
+    const r = state.effects.blur / 2; // half-res space
+    if (state.effects.blur > 0) {
+      const rounds = state.effects.blur > 40 ? 2 : 1;
+      for (let i = 0; i < rounds; i++) {
+        blurPass(fboA, hw, hh, tex, 1, 0, r / rounds);
+        blurPass(fboB, hw, hh, texA, 0, 1, r / rounds);
+        tex = texB;
+      }
+    }
+
+    // post: grain + duotone, to screen
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, state.pxW, state.pxH);
+    gl.useProgram(post.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(post.u.uTex, 0);
+    gl.uniform2f(post.u.uRes, state.pxW, state.pxH);
+    gl.uniform1f(post.u.uGrain, state.effects.grain);
+    gl.uniform1f(
+      post.u.uTime,
+      state.reduced ? 0 : (performance.now() - state.t0) / 1000
+    );
+    gl.uniform1f(post.u.uTintAmt, state.effects.tint);
+    const tc = parseColor(state.effects.tintColor);
+    gl.uniform3f(post.u.uTintInk, tc[0], tc[1], tc[2]);
+    gl.uniform3f(post.u.uTintBg, state.bg[0], state.bg[1], state.bg[2]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  // --- loop ---------------------------------------------------------------
+  const needsLoop = () =>
+    !!state.anims || (state.effects.grain > 0 && !state.reduced);
+
+  function tick(now) {
+    state.raf = 0;
+    if (state.anims) {
+      const { pts, live } = sampleTweens(state.anims, now, state.easing);
+      state.current = pts;
+      if (!live) {
+        state.anims = null;
+        state.onSettle?.();
+      }
+    }
+    draw();
+    if (needsLoop()) state.raf = requestAnimationFrame(tick);
+  }
+
+  function ensureLoop() {
+    if (!state.raf && needsLoop()) state.raf = requestAnimationFrame(tick);
+  }
+
+  function readColors() {
+    if (typeof getComputedStyle !== 'function') return;
+    const cs = getComputedStyle(host);
+    state.ink = parseColor(cs.color);
+    const bgStr =
+      state.effects.background ||
+      (() => {
+        let el = host;
+        while (el) {
+          const b = getComputedStyle(el).backgroundColor;
+          if (b && !b.startsWith('rgba(0, 0, 0, 0)')) return b;
+          el = el.parentElement;
+        }
+        return document.body ? getComputedStyle(document.body).backgroundColor : '#fff';
+      })();
+    state.bg = parseColor(bgStr);
+  }
+
+  readColors();
+
+  return {
+    setFormation(f, { animate = true } = {}) {
+      const first = !state.formation;
+      state.formation = f;
+      readColors();
+      const instant =
+        first ||
+        !animate ||
+        state.reduced ||
+        state.motion === 'instant' ||
+        state.duration <= 0;
+      const targets = first ? f.dots : assignTargets(state.current, f.dots);
+      if (instant) {
+        state.anims = null;
+        state.current = targets.map((d) => d.slice());
+        draw();
+        state.onSettle?.();
+      } else {
+        state.anims = buildTweens(state.current, targets, state, performance.now());
+        ensureLoop();
+      }
+      ensureLoop();
+    },
+    showGrid(on) {
+      state.gridOn = !!on;
+      draw();
+    },
+    configure(patch) {
+      Object.assign(state, patch);
+      readColors();
+      draw();
+    },
+    setEffects(patch) {
+      Object.assign(state.effects, patch);
+      readColors();
+      draw();
+      ensureLoop();
+    },
+    refreshInk() {
+      readColors();
+      draw();
+    },
+    resizePx(cssW, cssH, dpr) {
+      const scale = Math.min(dpr || 1, 2);
+      const w = Math.max(1, Math.round(cssW * scale));
+      const h = Math.max(1, Math.round(cssH * scale));
+      if (w === state.pxW && h === state.pxH) return;
+      state.pxW = w;
+      state.pxH = h;
+      canvas.width = w;
+      canvas.height = h;
+      allocTargets();
+      draw();
+    },
+    get formation() {
+      return state.formation;
+    },
+    get settled() {
+      return !state.anims;
+    },
+    set onSettle(fn) {
+      state.onSettle = fn;
+    },
+    destroy() {
+      if (state.raf) cancelAnimationFrame(state.raf);
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    },
+  };
+}
+
 // ---- src/element.js ----
 // kzn-logo — <kzn-logo> custom element. Framework-agnostic: drop the script on
 // any page (plain HTML, React, Vue, ...) and use the tag.
@@ -581,18 +1021,21 @@ function createDynamicRenderer(svg, opts = {}) {
 
 
 
+
 const BASE_CELLS = 4; // cells on the short side — the 4×4 heritage
 
 class KznLogo extends HTMLElement {
-  static observedAttributes = ['mode', 'seed', 'grid', 'interactive'];
+  static observedAttributes = ['mode', 'seed', 'grid', 'interactive', 'renderer'];
 
   #svg = null;
+  #canvas = null;
   #dyn = null;
   #ro = null;
   #dims = null; // { w, h } in cells
   #base = null; // seed base
   #step = 0; //   0 = the ideal mark; n>0 = generated formation n
   #engineOpts = {};
+  #effectsOpts = null;
   #resizeTimer = 0;
 
   constructor() {
@@ -601,7 +1044,8 @@ class KznLogo extends HTMLElement {
     const style = document.createElement('style');
     style.textContent =
       ':host{display:block;color:inherit}:host([interactive]){cursor:pointer}' +
-      'svg{display:block;width:100%;height:100%}';
+      'svg,canvas{display:block;width:100%;height:100%}' +
+      '[hidden]{display:none !important}';
     this.#svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.#svg.setAttribute('aria-hidden', 'true');
     root.append(style, this.#svg);
@@ -632,6 +1076,7 @@ class KznLogo extends HTMLElement {
       this.#step = 0;
       this.#apply(true);
     } else if (name === 'grid') this.#dyn?.showGrid(newV !== null);
+    else if (name === 'renderer') this.#mount();
     else if (name === 'interactive') {
       if (newV !== null) this.setAttribute('tabindex', '0');
       else this.removeAttribute('tabindex');
@@ -670,6 +1115,26 @@ class KznLogo extends HTMLElement {
     this.#apply(true);
   }
 
+  /**
+   * Post-effect parameters (WebGL renderer only; ignored by SVG):
+   * { blur: px, grain: 0..1, tint: 0..1, tintColor: '#…', background: '#…' }.
+   * All zero by default — flat parity. Placeholder stack until the Unicorn
+   * Studio effect chain is replicated.
+   */
+  set effects(patch) {
+    this.#effectsOpts = { ...(this.#effectsOpts || {}), ...patch };
+    this.#dyn?.setEffects?.(this.#effectsOpts);
+  }
+
+  get effects() {
+    return this.#effectsOpts;
+  }
+
+  /** Re-read CSS ink/ground colors (call after a theme change). */
+  refreshInk() {
+    this.#dyn?.refreshInk?.();
+  }
+
   get formation() {
     return this.mode === 'dynamic' ? this.#dyn?.formation : MARK;
   }
@@ -701,10 +1166,32 @@ class KznLogo extends HTMLElement {
   #mount() {
     this.#unmount();
     if (this.mode === 'static') {
+      this.#svg.toggleAttribute('hidden', false);
       renderMark(this.#svg);
       return;
     }
-    this.#dyn = createDynamicRenderer(this.#svg);
+    // dynamic: WebGL when asked for and available, flat SVG otherwise.
+    // A fresh canvas per mount — a lost/destroyed context can't be revived.
+    if (this.getAttribute('renderer') === 'webgl') {
+      this.#canvas = document.createElement('canvas');
+      this.#canvas.setAttribute('aria-hidden', 'true');
+      this.shadowRoot.append(this.#canvas);
+      try {
+        this.#dyn = createWebGLRenderer(this.#canvas, this);
+      } catch {
+        this.#dyn = null;
+      }
+      if (!this.#dyn) {
+        this.#canvas.remove();
+        this.#canvas = null;
+      }
+    }
+    const usingGL = !!this.#dyn;
+    if (!usingGL) this.#dyn = createDynamicRenderer(this.#svg);
+    this.#svg.toggleAttribute('hidden', usingGL);
+    this.dataset.rendererActive = usingGL ? 'webgl' : 'svg';
+    if (usingGL && this.#effectsOpts) this.#dyn.setEffects(this.#effectsOpts);
+
     this.#dyn.onSettle = () =>
       this.dispatchEvent(
         new CustomEvent('kzn-settle', { bubbles: true, composed: true })
@@ -712,6 +1199,7 @@ class KznLogo extends HTMLElement {
     this.#ro = new ResizeObserver((entries) => {
       const r = entries[entries.length - 1].contentRect;
       if (r.width < 1 || r.height < 1) return;
+      this.#dyn?.resizePx?.(r.width, r.height, window.devicePixelRatio || 1);
       const ar = r.width / r.height;
       const w = ar >= 1 ? BASE_CELLS * ar : BASE_CELLS;
       const h = ar >= 1 ? BASE_CELLS : BASE_CELLS / ar;
@@ -735,6 +1223,9 @@ class KznLogo extends HTMLElement {
     this.#dyn = null;
     this.#dims = null;
     this.#svg.textContent = '';
+    this.#canvas?.remove();
+    this.#canvas = null;
+    delete this.dataset.rendererActive;
   }
 
   #formationForStep() {

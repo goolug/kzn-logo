@@ -687,7 +687,7 @@ uniform vec3 uDots[8];  // x, y (cells, center origin, y down), radius
 uniform int uCount;
 uniform vec4 uInk;
 uniform vec4 uBg;
-uniform float uOpaque;  // 1 = composite on uBg (treatment), 0 = transparent
+uniform float uMode;    // 0 transparent · 1 composite on uBg · 2 coverage-on-black
 uniform float uGrid;
 out vec4 outColor;
 void main() {
@@ -716,7 +716,9 @@ void main() {
     a = max(a, max(max(lx, ly) * 0.18, cross));
   }
 
-  if (uOpaque > 0.5) {
+  if (uMode > 1.5) {
+    outColor = vec4(vec3(cov), 1.0); // pure dot light — feeds the fog
+  } else if (uMode > 0.5) {
     outColor = vec4(mix(uBg.rgb, uInk.rgb, a), 1.0);
   } else {
     outColor = vec4(uInk.rgb * a, a); // premultiplied
@@ -752,27 +754,33 @@ void main() {
   outColor = acc / total;
 }`;
 
-// fog composite: ACES-toned blurred scene + film grain, added under the mask
+// fog composite: the halo field (blurred dot coverage) is ACES-toned,
+// grained, masked by the drifting fbm — then pushes pixels toward the ink.
+// Clipped to the dots' own light: the background itself never fogs.
+// (On the prototype's black ground this reduces to the same additive math.)
 const FOGCOMP_FS = `#version 300 es
 precision highp float;
-uniform sampler2D uTex;   // sharp scene
-uniform sampler2D uBlur;  // fog-blurred scene
+uniform sampler2D uTex;   // sharp composite
+uniform sampler2D uBlur;  // blurred dot coverage — the halo field
 uniform vec2 uRes;
 uniform float uTime;
 uniform float uFog;
 uniform float uGrain;
+uniform vec4 uInk;
+uniform vec4 uBg;
 out vec4 outColor;
 ${LIB}
 ${FBM}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   float ar = uRes.x / uRes.y;
-  vec4 bg = texture(uTex, uv);
-  vec3 b = texture(uBlur, uv).rgb;
+  vec4 base = texture(uTex, uv);
+  float halo = texture(uBlur, uv).r;
   float mask = fogField(uv, ar, uTime) * uFog;
+  float presence = smoothstep(0.0, 0.12, halo);
   float grain = hash21(uv * uRes.xy / 100.0 + fract(uTime));
-  b = aces(b * 0.8) + grain * 0.05 * uGrain;
-  outColor = vec4(bg.rgb + b * mask, 1.0);
+  float light = aces(vec3(halo * 0.8)).r + grain * 0.05 * uGrain;
+  outColor = vec4(base.rgb + (uInk.rgb - uBg.rgb) * light * mask * presence, 1.0);
 }`;
 
 // bokeh: golden-angle disc blur, dithered by gradient noise
@@ -1074,7 +1082,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
   const stackActive = () =>
     ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain', 'tint'].some((k) => fx()[k] > 0);
 
-  function drawScene(target, opaque) {
+  function drawScene(target, mode) {
     const f = state.formation;
     const [vw, vh] = f.view || [f.w, f.h];
     pass(prg.scene, target, (u) => {
@@ -1090,7 +1098,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       gl.uniform1i(u.uCount, n);
       gl.uniform4fv(u.uInk, state.ink);
       gl.uniform4fv(u.uBg, state.bg);
-      gl.uniform1f(u.uOpaque, opaque ? 1 : 0);
+      gl.uniform1f(u.uMode, mode);
       gl.uniform1f(u.uGrid, state.gridOn ? 1 : 0);
     });
   }
@@ -1102,7 +1110,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       gl.viewport(0, 0, state.pxW, state.pxH);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      drawScene(null, false);
+      drawScene(null, 0);
       return;
     }
 
@@ -1110,22 +1118,24 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     const time = state.reduced ? 0 : ((performance.now() - state.t0) / 1000) * 0.2 * 0.05;
     // "fog time" advances at layer speed 0.2 with the scene's 0.05 multiplier
 
-    drawScene('fullA', true);
+    drawScene('fullA', 1);
     let cur = 'fullA'; // name of the current full-res composite
     let spare = 'fullB';
 
-    // 1 · fog — noise-modulated exponential blur at quarter res, added
-    //     under the fbm mask with ACES tone + film grain
+    // 1 · fog — the dots' own light (coverage on black, quarter res) gets a
+    //     noise-modulated exponential blur; the composite pushes pixels
+    //     toward the ink under the fbm mask. Clipped to the dots by design.
     if (e.fog > 0 || e.grain > 0) {
-      pass(prg.fogBlur, 'quarterA', (u) => {
-        bindTex(0, targets[cur].tex);
+      drawScene('quarterA', 2);
+      pass(prg.fogBlur, 'quarterB', (u) => {
+        bindTex(0, targets.quarterA.tex);
         gl.uniform1i(u.uTex, 0);
         gl.uniform2f(u.uDir, 1, 0);
         gl.uniform1f(u.uTime, time);
         gl.uniform1f(u.uAmt, Math.max(e.fog, 0.001));
       });
-      pass(prg.fogBlur, 'quarterB', (u) => {
-        bindTex(0, targets.quarterA.tex);
+      pass(prg.fogBlur, 'quarterA', (u) => {
+        bindTex(0, targets.quarterB.tex);
         gl.uniform1i(u.uTex, 0);
         gl.uniform2f(u.uDir, 0, 1);
         gl.uniform1f(u.uTime, time);
@@ -1133,12 +1143,14 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       });
       pass(prg.fogComp, spare, (u) => {
         bindTex(0, targets[cur].tex);
-        bindTex(1, targets.quarterB.tex);
+        bindTex(1, targets.quarterA.tex);
         gl.uniform1i(u.uTex, 0);
         gl.uniform1i(u.uBlur, 1);
         gl.uniform1f(u.uTime, time);
         gl.uniform1f(u.uFog, e.fog);
         gl.uniform1f(u.uGrain, e.grain);
+        gl.uniform4fv(u.uInk, state.ink);
+        gl.uniform4fv(u.uBg, state.bg);
       });
       [cur, spare] = [spare, cur];
     }

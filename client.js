@@ -10,6 +10,7 @@ import './src/element.js';
 const params = new URLSearchParams(location.search);
 const logo = document.getElementById('logo');
 const panel = document.getElementById('panel');
+const toggleBtn = document.getElementById('toggle');
 const num = (k, d) => +(params.get(k) ?? d);
 
 // authored opening (Figma 179-3924): the mark's bbox fills the box inset
@@ -115,6 +116,7 @@ function applyGround() {
 
 function applyPanel() {
   document.body.classList.toggle('nopanel', !state.panel);
+  toggleBtn.textContent = state.panel ? 'hide' : 'controls';
 }
 
 function applyAll() {
@@ -340,7 +342,7 @@ panel.append(
     rangeRow({ key: 'stagger', label: 'stagger ms', min: 0, max: 140, step: 5, apply: applyFormation })),
 );
 
-document.getElementById('toggle').addEventListener('click', () => {
+toggleBtn.addEventListener('click', () => {
   state.panel = !state.panel;
   applyPanel();
   syncURL();

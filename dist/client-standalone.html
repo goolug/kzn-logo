@@ -19,14 +19,22 @@
   kzn-logo { color: #1e1e1e; }
   svg.noise { pointer-events: none; }
 
+  /* the panel's only affordance: a quiet mono link in the corner */
   #toggle {
     position: fixed;
-    top: 14px;
+    top: 10px;
     right: 14px;
     z-index: 5;
-    opacity: 0.55;
+    background: none;
+    border: none;
+    padding: 6px 2px;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: rgba(22, 21, 24, 0.4);
+    cursor: pointer;
   }
-  #toggle:hover { opacity: 1; }
+  #toggle:hover { color: rgba(22, 21, 24, 0.9); text-decoration: underline; }
   #panel {
     position: fixed;
     top: 52px;
@@ -114,7 +122,7 @@
 </svg>
 <kzn-logo id="logo" mode="dynamic" renderer="webgl" interactive drag seed="kzn"></kzn-logo>
 
-<button id="toggle">◧</button>
+<button id="toggle">hide</button>
 <aside id="panel"></aside>
 
 <script type="module">
@@ -2421,6 +2429,7 @@ if (!customElements.get('kzn-logo')) customElements.define('kzn-logo', KznLogo);
 const params = new URLSearchParams(location.search);
 const logo = document.getElementById('logo');
 const panel = document.getElementById('panel');
+const toggleBtn = document.getElementById('toggle');
 const num = (k, d) => +(params.get(k) ?? d);
 
 // authored opening (Figma 179-3924): the mark's bbox fills the box inset
@@ -2526,6 +2535,7 @@ function applyGround() {
 
 function applyPanel() {
   document.body.classList.toggle('nopanel', !state.panel);
+  toggleBtn.textContent = state.panel ? 'hide' : 'controls';
 }
 
 function applyAll() {
@@ -2751,7 +2761,7 @@ panel.append(
     rangeRow({ key: 'stagger', label: 'stagger ms', min: 0, max: 140, step: 5, apply: applyFormation })),
 );
 
-document.getElementById('toggle').addEventListener('click', () => {
+toggleBtn.addEventListener('click', () => {
   state.panel = !state.panel;
   applyPanel();
   syncURL();

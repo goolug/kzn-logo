@@ -126,8 +126,13 @@
 <aside id="panel"></aside>
 
 <script>
-  // this instance's recipe: tone-on-tone — #FAF8F5 multiply on flat #FFFBF8
-  window.KZN_DEFAULTS = { ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8' };
+  // this instance's recipe: tone-on-tone — #FAF8F5 multiply on flat #FFFBF8.
+  // fog/bokeh/zoom ride the shared recipe; the rays stay this page's own
+  // (quiet add, following the ink) rather than the blue page's dodge/orange
+  window.KZN_DEFAULTS = {
+    ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8',
+    rays: 1, raymode: 'add', raycolor: '', rayink: 0,
+  };
 </script>
 <script type="module" src="./client.js"></script>
 </body>

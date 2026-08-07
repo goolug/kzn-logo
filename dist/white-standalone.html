@@ -126,8 +126,13 @@
 <aside id="panel"></aside>
 
 <script>
-  // this instance's recipe: tone-on-tone — #FAF8F5 multiply on flat #FFFBF8
-  window.KZN_DEFAULTS = { ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8' };
+  // this instance's recipe: tone-on-tone — #FAF8F5 multiply on flat #FFFBF8.
+  // fog/bokeh/zoom ride the shared recipe; the rays stay this page's own
+  // (quiet add, following the ink) rather than the blue page's dodge/orange
+  window.KZN_DEFAULTS = {
+    ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8',
+    rays: 1, raymode: 'add', raycolor: '', rayink: 0,
+  };
 </script>
 <script type="module">
 // ---- src/core.js ----
@@ -2444,12 +2449,13 @@ const INTRO = { insets: [53, 138, 130, 138], fit: 'mark' };
 // over the 02-Home ground, full kaizen stack with calm slow fog
 const DEFAULTS = {
   seed: 'kzn', scale: 1.31, kernel: 'fixed', duration: 750, stagger: 45,
-  ink: '007CE6', alpha: 0.09, blend: 'multiply', soft: 0, fuse: 0.3,
-  fog: 1, fogspeed: 0.65, fogscale: 0.65, fogdensity: 0.25,
-  bokeh: 1,
-  rays: 1, raymode: 'add', raycolor: '', rayink: 0, rayx: 0.5, rayy: 0.44,
+  ink: '77B3E6', alpha: 0.09, blend: 'multiply', soft: 0, fuse: 0.3,
+  fog: 0.85, fogspeed: 0.39, fogscale: 0.65, fogdensity: 0.25,
+  bokeh: 0.45,
+  rays: 0.7, raymode: 'dodge', raycolor: 'FF4013', rayink: 0.58,
+  rayx: 0.5, rayy: 0.44,
   raydecay: 0.899, raywobble: 0.15, rayfollow: 0,
-  zoom: 1,
+  zoom: 0.65,
   diffuse: 1, difdir: 45, diftight: 0.75,
   rscale: 1,
   bg0: 'F2E9F0', bg2: 'D7D7E2', noise: 1,

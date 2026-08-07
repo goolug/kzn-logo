@@ -413,19 +413,40 @@ class KznLogo extends HTMLElement {
     if (this.#step === 0 && this.#intro) {
       const it = this.#intro;
       if (it.insets && this.#px) {
-        // fixed px insets, proportional inside the box (the comp's anchoring)
+        // fixed px insets; the formation lives inside the box (the comp's
+        // anchoring: 138px sides, 53px top, 130px bottom at base)
         const [t, ri, b, l] = it.insets;
         const { w: pxW, h: pxH } = this.#px;
         const bw = Math.max(1, pxW - l - ri);
         const bh = Math.max(1, pxH - t - b);
+        let rPx;
+        let dotsPx;
+        if (it.fit === 'mark') {
+          // the ideal mark fitted so its tight bbox IS the box: vertical
+          // rhythm canonical (box height = (2 + R) vertical cells, dot
+          // radius 0.3875 of a cell), columns spread to fill the width
+          const cellY = bh / (2 + R);
+          rPx = R * cellY;
+          dotsPx = [
+            [bw / 2, rPx + cellY], // kernel — tangent under the box's crosshair
+            [bw / 2, rPx],
+            [rPx, rPx],
+            [bw - rPx, rPx],
+            [rPx, bh - rPx],
+            [bw - rPx, bh - rPx],
+          ];
+        } else {
+          rPx = it.r * bh;
+          dotsPx = it.dots.map(([bx, by]) => [bx * bw, by * bh]);
+        }
         f = {
           w,
           h,
-          r: (it.r * bh) / (pxH / vh),
+          r: rPx / (pxH / vh),
           seed: 'intro',
-          dots: it.dots.map(([bx, by]) => [
-            ((l + bx * bw) / pxW - 0.5) * vw,
-            ((t + by * bh) / pxH - 0.5) * vh,
+          dots: dotsPx.map(([dx, dy]) => [
+            ((l + dx) / pxW - 0.5) * vw,
+            ((t + dy) / pxH - 0.5) * vh,
           ]),
           lines: null,
         };

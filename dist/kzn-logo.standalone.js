@@ -1095,16 +1095,18 @@ precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uRes;
 uniform float uAmt;
+uniform float uDifAngle; // scatter drift direction, radians (prototype: 45°)
+uniform float uDifTight; // how close to center stays sharp (prototype: 0.75)
 out vec4 outColor;
 ${LIB}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   float ar = uRes.x / uRes.y;
   float dctr = distance(uv * vec2(ar, 1.0), vec2(0.5 * ar, 0.5));
-  float near = max(0.0, 1.0 - dctr * 4.0 * (1.0 - 0.75));
+  float near = max(0.0, 1.0 - dctr * 4.0 * (1.0 - uDifTight));
   float gate = max(0.0, 0.5 - near * near);
   float amount = 1.068 * uAmt * gate;
-  vec2 dir = vec2(0.5 / ar, 0.5) * amount * 0.4;
+  vec2 dir = vec2(cos(uDifAngle) / ar, sin(uDifAngle)) * 0.7071 * amount * 0.4;
   vec4 acc = vec4(0.0);
   const int N = 12;
   float used = 0.0;
@@ -1237,7 +1239,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     bg: [1, 0.984, 0.973, 1],
     bgGrad: null, // { mid, stops: [rgb, rgb, rgb] } when the ground is a gradient
     appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0 },
-    effects: { ...ZERO_STACK },
+    effects: { ...ZERO_STACK, difAngle: 45, difTight: 0.75 },
     pxW: 0,
     pxH: 0,
     t0: performance.now(),
@@ -1436,6 +1438,8 @@ function createWebGLRenderer(canvas, host, opts = {}) {
         bindTex(0, targets[cur].tex);
         gl.uniform1i(u.uTex, 0);
         gl.uniform1f(u.uAmt, e.diffuse);
+        gl.uniform1f(u.uDifAngle, ((e.difAngle ?? 45) * Math.PI) / 180);
+        gl.uniform1f(u.uDifTight, e.difTight ?? 0.75);
       });
       [cur, spare] = [spare, cur];
     }
@@ -2022,19 +2026,40 @@ class KznLogo extends HTMLElement {
     if (this.#step === 0 && this.#intro) {
       const it = this.#intro;
       if (it.insets && this.#px) {
-        // fixed px insets, proportional inside the box (the comp's anchoring)
+        // fixed px insets; the formation lives inside the box (the comp's
+        // anchoring: 138px sides, 53px top, 130px bottom at base)
         const [t, ri, b, l] = it.insets;
         const { w: pxW, h: pxH } = this.#px;
         const bw = Math.max(1, pxW - l - ri);
         const bh = Math.max(1, pxH - t - b);
+        let rPx;
+        let dotsPx;
+        if (it.fit === 'mark') {
+          // the ideal mark fitted so its tight bbox IS the box: vertical
+          // rhythm canonical (box height = (2 + R) vertical cells, dot
+          // radius 0.3875 of a cell), columns spread to fill the width
+          const cellY = bh / (2 + R);
+          rPx = R * cellY;
+          dotsPx = [
+            [bw / 2, rPx + cellY], // kernel — tangent under the box's crosshair
+            [bw / 2, rPx],
+            [rPx, rPx],
+            [bw - rPx, rPx],
+            [rPx, bh - rPx],
+            [bw - rPx, bh - rPx],
+          ];
+        } else {
+          rPx = it.r * bh;
+          dotsPx = it.dots.map(([bx, by]) => [bx * bw, by * bh]);
+        }
         f = {
           w,
           h,
-          r: (it.r * bh) / (pxH / vh),
+          r: rPx / (pxH / vh),
           seed: 'intro',
-          dots: it.dots.map(([bx, by]) => [
-            ((l + bx * bw) / pxW - 0.5) * vw,
-            ((t + by * bh) / pxH - 0.5) * vh,
+          dots: dotsPx.map(([dx, dy]) => [
+            ((l + dx) / pxW - 0.5) * vw,
+            ((t + dy) / pxH - 0.5) * vh,
           ]),
           lines: null,
         };

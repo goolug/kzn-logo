@@ -23,20 +23,14 @@ const GROUND = {
   ],
 };
 
-// the authored hero composition (measured from Figma node 179-3926):
-// dots as fractions of the inset box, kernel first — the middle dot,
-// tangent (with the comp's ~2px optical slack) to the comp's own crosshair
+// the hero opening: the default mark formation fitted so its bounding box
+// exactly fills the inset box — 138px sides, 53px top, 130px bottom (vital,
+// fixed px). fit:'mark' derives everything from the construction: vertical
+// rhythm canonical, columns spread to the box width (≈470px pitch, r≈113 at
+// base — within 1px of the authored comp)
 const INTRO = {
-  insets: [53, 138, 130, 138], // top right bottom left, px — fixed, vital
-  r: 0.1607, //                   112.0085px on the 697px-tall box
-  dots: [
-    [0.5, 0.90463], //      the reacher
-    [0.5, 0.48211],
-    [0.09623, 0.48211],
-    [0.90377, 0.48211],
-    [0.09623, 1.16005], //  bottom pair — authored to run off the canvas
-    [0.90377, 1.16005],
-  ],
+  insets: [53, 138, 130, 138], // top right bottom left
+  fit: 'mark',
 };
 
 const state = {
@@ -51,6 +45,8 @@ const state = {
   rays: num('rays', 0),
   zoom: num('zoom', 0),
   diffuse: num('diffuse', 0),
+  difdir: num('difdir', 45),
+  diftight: num('diftight', 0.75),
   grain: num('grain', 0),
   duration: num('duration', 750),
   stagger: num('stagger', 45),
@@ -59,7 +55,7 @@ const state = {
 const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
 const DEFAULTS = {
   seed: 'kzn', scale: 1.31, ink: '1E1E1E', alpha: 1, blend: 'normal',
-  soft: 0, duration: 750, stagger: 45, panel: true,
+  soft: 0, difdir: 45, diftight: 0.75, duration: 750, stagger: 45, panel: true,
 };
 
 function syncURL() {
@@ -109,6 +105,8 @@ function applyFx() {
     rays: state.rays,
     zoom: state.zoom,
     diffuse: state.diffuse,
+    difAngle: state.difdir,
+    difTight: state.diftight,
     grain: state.grain,
     background: GROUND,
   };
@@ -116,6 +114,10 @@ function applyFx() {
     $(k).value = state[k];
     $(k + 'Out').textContent = state[k].toFixed(2);
   }
+  $('difdir').value = state.difdir;
+  $('difdirOut').textContent = state.difdir + '°';
+  $('diftight').value = state.diftight;
+  $('diftightOut').textContent = state.diftight.toFixed(2);
 }
 
 function applyPanel() {
@@ -144,6 +146,8 @@ slider('soft', 'soft', applyDots);
 slider('duration', 'duration', applyFormation);
 slider('stagger', 'stagger', applyFormation);
 for (const k of FX) slider(k, k, applyFx);
+slider('difdir', 'difdir', applyFx);
+slider('diftight', 'diftight', applyFx);
 
 $('blend').addEventListener('change', () => {
   state.blend = $('blend').value;

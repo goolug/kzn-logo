@@ -310,16 +310,18 @@ precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uRes;
 uniform float uAmt;
+uniform float uDifAngle; // scatter drift direction, radians (prototype: 45°)
+uniform float uDifTight; // how close to center stays sharp (prototype: 0.75)
 out vec4 outColor;
 ${LIB}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   float ar = uRes.x / uRes.y;
   float dctr = distance(uv * vec2(ar, 1.0), vec2(0.5 * ar, 0.5));
-  float near = max(0.0, 1.0 - dctr * 4.0 * (1.0 - 0.75));
+  float near = max(0.0, 1.0 - dctr * 4.0 * (1.0 - uDifTight));
   float gate = max(0.0, 0.5 - near * near);
   float amount = 1.068 * uAmt * gate;
-  vec2 dir = vec2(0.5 / ar, 0.5) * amount * 0.4;
+  vec2 dir = vec2(cos(uDifAngle) / ar, sin(uDifAngle)) * 0.7071 * amount * 0.4;
   vec4 acc = vec4(0.0);
   const int N = 12;
   float used = 0.0;
@@ -452,7 +454,7 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     bg: [1, 0.984, 0.973, 1],
     bgGrad: null, // { mid, stops: [rgb, rgb, rgb] } when the ground is a gradient
     appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0 },
-    effects: { ...ZERO_STACK },
+    effects: { ...ZERO_STACK, difAngle: 45, difTight: 0.75 },
     pxW: 0,
     pxH: 0,
     t0: performance.now(),
@@ -651,6 +653,8 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
         bindTex(0, targets[cur].tex);
         gl.uniform1i(u.uTex, 0);
         gl.uniform1f(u.uAmt, e.diffuse);
+        gl.uniform1f(u.uDifAngle, ((e.difAngle ?? 45) * Math.PI) / 180);
+        gl.uniform1f(u.uDifTight, e.difTight ?? 0.75);
       });
       [cur, spare] = [spare, cur];
     }

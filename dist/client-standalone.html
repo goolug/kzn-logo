@@ -2433,8 +2433,9 @@ const toggleBtn = document.getElementById('toggle');
 const num = (k, d) => +(params.get(k) ?? d);
 
 // authored opening (Figma 179-3924): the mark's bbox fills the box inset
-// 53 top / 138 sides / 130 bottom — fixed px, same rule at every viewport
-const INTRO = { insets: [53, 138, 130, 138], fit: 'mark' };
+// 53 top / 138 sides / 130 bottom — fixed px, same rule at every viewport.
+// An instance page may bring its own comp box via window.KZN_INTRO.
+const INTRO = window.KZN_INTRO || { insets: [53, 138, 130, 138], fit: 'mark' };
 
 // opening recipe = the client-review settings: brand blue at 9% multiply
 // over the 02-Home ground, full kaizen stack with calm slow fog

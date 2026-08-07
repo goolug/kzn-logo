@@ -32,9 +32,12 @@ python3 -m http.server 4173     # or any static file server
   where every slider is paired with a typed number, one undo stack
   (⌘Z works) + reset-to-recipe, opens on the client-review recipe
   (brand blue #007CE6 · 9% · multiply over the 02-Home gradient)
-- `http://localhost:4173/white.html` — **white study instance**: same page,
-  different opening — #FAF8F5 multiply on flat #FFFBF8. Instances share
-  client.js; each html declares only its recipe via `window.KZN_DEFAULTS`
+- `http://localhost:4173/white.html` — **white hero page** (Figma 216-3322):
+  full page build — Replica type (nav / lockup / manifesto, licensed fonts
+  via local()+./fonts/ hooks with metric fallbacks), tone-on-tone dots
+  (#FAF8F5 multiply, soft 0.35 ≈ the comp's 100px layer blur) in the comp's
+  own box (insets 66.49/97/67.41/97). Instances share client.js; each html
+  declares its recipe via `window.KZN_DEFAULTS` + `window.KZN_INTRO`
 - `npm test` — 30 rule-invariant tests (node only, no installs)
 - `npm run build:standalone` — emits `dist/` single-file bundles
 

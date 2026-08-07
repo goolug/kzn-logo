@@ -19,6 +19,47 @@
   kzn-logo { color: #1e1e1e; }
   svg.noise { pointer-events: none; }
 
+  /* — the page (Figma 216-3322): Replica type under the dots layer —
+     licensed fonts load from the machine or ./fonts/; metrics-true
+     grotesque/mono fallbacks otherwise */
+  @font-face {
+    font-family: 'Replica LL';
+    src: local('Replica LL'), local('ReplicaLL-Regular'),
+      url('./fonts/ReplicaLL-Regular.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Replica Mono LL';
+    src: local('Replica Mono LL'), local('ReplicaMonoLL-Regular'),
+      url('./fonts/ReplicaMonoLL-Regular.woff2') format('woff2');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  .chrome {
+    position: fixed;
+    top: 20px;
+    font: 14px/1 'Replica Mono LL', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    letter-spacing: 0;
+    color: #19191e;
+    filter: blur(0.75px); /* the comp's 1.5 layer blur */
+    white-space: nowrap;
+  }
+  #lockup { left: 19px; top: 19px; filter: none; }
+  #lockup svg { display: block; width: 95px; height: 16px; }
+  nav.chrome { left: calc(50% + 5px); display: flex; gap: 60px; }
+  #join { right: 20px; }
+  #manifesto {
+    position: fixed;
+    left: 18px;
+    bottom: 24px;
+    margin: 0;
+    width: min(1372px, calc(100vw - 68px));
+    font: clamp(28px, 3.8889vw, 56px)/1 'Replica LL', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    letter-spacing: 0;
+    color: #8c8c8f;
+    filter: blur(0.5px); /* the comp's 1 layer blur */
+  }
+  #manifesto .lead { color: #fea021; }
+
   /* the panel's only affordance: a quiet mono link in the corner */
   #toggle {
     position: fixed;
@@ -100,9 +141,50 @@
   .actions { display: flex; gap: 7px; margin-bottom: 10px; }
   .actions button { flex: 1; }
   button.primary { background: #fffbf8; color: #1e1e1e; border-color: #fffbf8; }
+  /* JOIN US owns the top-right on this page — the controls link and its
+     panel anchor to the bottom-right corner instead (must follow the base
+     rules to win the top/bottom anchors) */
+  #toggle { top: auto; bottom: 10px; }
+  #panel { top: auto; bottom: 44px; max-height: calc(100vh - 64px); }
 </style>
 </head>
 <body>
+<!-- page chrome sits under the dots layer, per the comp's stacking -->
+<div id="lockup" class="chrome" role="img" aria-label="Kaizen">
+  <!-- lockup: KAIZEN letterforms verbatim from Figma (vector export of node
+       216-3330); the mark redrawn from the measured master construction
+       (MARK, node 170-3040) in place of the comp's 3.9 MB raster mask -->
+  <svg viewBox="0 0 95 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <g filter="url(#kzn_lb)">
+      <path d="M55.3002 1.60257C56.3248 1.60257 56.3248 2.5105 56.3248 4.04699L56.3246 11.6426C56.3246 12.8648 56.1197 13.4584 55.1976 13.4584L54.4804 13.4582C53.2851 13.4582 53.3192 12.5154 53.3192 10.9091L53.3535 3.06905C53.3535 2.09129 53.6609 1.6024 54.3098 1.6024L55.3002 1.60257Z" fill="#1A1A1F"/>
+      <path d="M89.1334 7.13572C89.9014 8.49714 90.1108 8.56695 90.4599 8.56695C90.9835 8.56695 91.1581 7.97352 91.1581 7.17063V2.87695C91.1581 2.14388 91.4373 1.75989 92.1355 1.75989C93.078 1.75989 93.2874 2.00425 93.2874 3.19112V12.337C93.2874 13.0701 93.0082 13.4541 91.9609 13.4541C91.0533 13.4541 90.5995 13.2097 90.3203 12.721L87.2135 7.4848C87.0738 7.24045 86.7247 6.71683 86.3058 6.71683C85.6775 6.71683 85.5728 7.31026 85.5728 7.9037V12.337C85.5728 13.0701 85.2935 13.4192 84.4906 13.4192C83.7226 13.4192 83.4434 13.2097 83.4434 12.0228V2.87695C83.4434 1.75989 84.0717 1.75989 84.7699 1.75989C86.3058 1.75989 85.9568 1.62026 89.1334 7.13572Z" fill="#1A1A1F"/>
+      <path d="M79.4048 1.63754C80.1029 1.63754 80.452 1.95171 80.452 2.58005C80.452 3.17349 80.1029 3.48766 79.4048 3.48766H75.8442C75.0762 3.48766 74.4827 3.94146 74.4827 4.84907C74.4827 5.72177 74.9366 6.2803 75.8442 6.2803H79.0208C79.719 6.2803 80.068 6.59447 80.068 7.22282C80.068 7.81625 79.719 8.13042 79.0208 8.13042H75.8442C74.9016 8.13042 74.4478 8.65405 74.4478 9.73619V10.2249C74.4478 11.1674 75.0064 11.6212 75.9489 11.6212H79.9284C80.6266 11.6212 80.9756 11.9354 80.9756 12.5637C80.9756 13.1572 80.5218 13.4713 79.6491 13.4713H72.9817C72.2486 13.4713 71.8996 13.1223 71.8996 12.2496V2.77205C71.8996 2.03898 72.2486 1.63754 72.9119 1.63754H79.4048Z" fill="#1A1A1F"/>
+      <path d="M65.7374 11.6041H68.2159C68.7744 11.6041 69.1235 11.9881 69.1235 12.4419C69.1235 13.1749 68.8093 13.4542 68.2159 13.4542H59.9427C59.3493 13.4542 59.0351 13.0004 59.0351 12.3371C59.0351 11.6041 59.3493 11.1503 59.9427 10.487L64.4458 5.46025C65.0044 4.797 65.2138 4.62246 65.2138 4.23847C65.2138 3.71485 64.6902 3.4705 63.608 3.4705H60.5361C60.1172 3.4705 59.5936 3.22614 59.5936 2.56289C59.5936 2.03927 59.9427 1.62037 60.4663 1.62037H68.2159C68.8093 1.62037 69.1933 1.96945 69.1933 2.6327C69.1933 3.61013 69.0188 3.9243 68.0065 5.04136L64.0618 9.36995C63.2241 10.3125 63.1892 10.4172 63.1542 10.8361C63.1542 11.639 64.0968 11.6041 65.7374 11.6041Z" fill="#1A1A1F"/>
+      <path d="M49.1476 13.4105C48.7287 13.4105 48.4146 13.1661 48.0306 12.5029C47.7513 11.9792 47.5768 11.7698 47.2277 11.6302C47.0182 11.5254 46.4597 11.4905 45.6219 11.4905H44.2954C43.318 11.4905 43.0387 11.5604 42.4104 12.6076C42.0613 13.1312 41.8868 13.4105 41.1188 13.4105H40.4206C39.6177 13.4105 39.6177 12.817 39.7923 12.2934L43.3878 2.58899C43.6322 1.92574 44.0511 1.57666 44.5747 1.57666H45.7965C46.2852 1.57666 46.739 1.7512 47.0182 2.51918L50.7883 12.5029C51.0327 13.1312 50.5439 13.4105 49.9854 13.4105H49.1476ZM46.7041 8.31391L46.0757 6.18452C45.8663 5.41654 45.587 5.17218 45.2379 5.17218C44.8888 5.17218 44.6096 5.48636 44.435 6.1147L43.7718 8.38372C43.5973 9.01207 44.1209 9.67532 44.7492 9.67532H45.6568C46.4248 9.67532 46.9135 9.01207 46.7041 8.31391Z" fill="#1A1A1F"/>
+      <path d="M31.4294 4.96266L33.3843 2.79836C34.257 1.82094 34.3617 1.6464 35.8976 1.6464C36.526 1.6464 37.0496 1.68131 37.0496 2.03039C37.0496 2.13511 37.0147 2.30965 36.4911 2.90309L34.5711 4.89284C34.0475 5.45137 33.9079 5.83536 33.9079 6.18444C33.9079 6.63824 34.1522 6.98732 34.2221 7.09205L37.2591 12.1537C37.678 12.9217 37.8176 13.4104 36.526 13.4104C35.7231 13.4104 35.2693 13.3057 34.8504 12.6773L33.4192 10.3734C32.6163 9.0818 32.1974 8.41855 31.604 8.41855C30.7313 8.41855 29.5444 9.9196 29.5444 10.9319V12.1886C29.5444 13.1311 29.1604 13.4104 28.3226 13.4104C27.3103 13.4104 27.0659 13.1311 27.0659 12.0839V2.79836C27.0659 2.03039 27.2754 1.6464 28.3226 1.6464C29.0906 1.6464 29.5444 1.85585 29.5444 2.76345V4.7183C29.5444 5.45137 29.9284 5.73063 30.2775 5.73063C30.6964 5.73063 31.0803 5.38155 31.4294 4.96266Z" fill="#1A1A1F"/>
+    </g>
+    <g filter="url(#kzn_mb)" transform="translate(1.6 1) scale(0.0492587)" fill="#1A1A1F">
+      <circle cx="153.6304" cy="156.3986" r="42.9058"/>
+      <circle cx="153.6304" cy="42.9058" r="42.9058"/>
+      <circle cx="42.9058" cy="42.9058" r="42.9058"/>
+      <circle cx="264.3551" cy="42.9058" r="42.9058"/>
+      <circle cx="42.9058" cy="222.8334" r="42.9058"/>
+      <circle cx="264.3551" cy="222.8334" r="42.9058"/>
+    </g>
+    <defs>
+      <filter id="kzn_lb" x="26" y="0.9" width="68" height="13.3" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="0.327273"/>
+      </filter>
+      <filter id="kzn_mb" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="7.1"/>
+      </filter>
+    </defs>
+  </svg>
+</div>
+<nav class="chrome"><span>PERSPECTIVES</span><span>PEOPLE</span></nav>
+<span id="join" class="chrome">JOIN US</span>
+<p id="manifesto"><span class="lead">The world engine shaping superintelligence. </span>Kaizen exists to build the ground intelligence learns on. We make digital worlds that run at real scale and keep running, so a model can practice against the complexity it will meet the day it's actually put to work.</p>
+
 <!-- grain is per-CSS-px (no viewBox): same density at every viewport size -->
 <svg class="noise" xmlns="http://www.w3.org/2000/svg">
   <g filter="url(#kzn_noise)"><rect width="100%" height="100%" fill="#fff"/></g>
@@ -127,12 +209,15 @@
 
 <script>
   // this instance's recipe: tone-on-tone — #FAF8F5 multiply on flat #FFFBF8.
+  // soft 0.35 ≈ the comp's 100px layer blur on Ø240 dots (216-3333).
   // fog/bokeh/zoom ride the shared recipe; the rays stay this page's own
   // (quiet add, following the ink) rather than the blue page's dodge/orange
   window.KZN_DEFAULTS = {
-    ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8',
+    ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8', soft: 0.35,
     rays: 1, raymode: 'add', raycolor: '', rayink: 0,
   };
+  // this page's opening box (Figma 216-3322 Symbol): 97 sides, 66.5/67.4
+  window.KZN_INTRO = { insets: [66.49, 97, 67.41, 97], fit: 'mark' };
 </script>
 <script type="module" src="./client.js"></script>
 </body>

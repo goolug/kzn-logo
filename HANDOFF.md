@@ -4,21 +4,15 @@ Everything lives in git; nothing depends on any session's container.
 
 ## Where the code is
 
-This project is **self-contained at the root of branch
-`claude/kaizen-interactive-logo-jnys6o` of `goolug/kzn`** (parked there
-because the GitHub integration couldn't create repositories). `kzn`'s `main`
-is untouched and unrelated.
+**Home: `goolug/kzn-logo`, branch `main`.** Start new Claude sessions from
+this repo directly — that gives the session native git access to it.
 
-**To give it its real home** (1 minute, once): create an **empty** repo
-`goolug/kzn-logo` on github.com/new — no README, no license — then from a
-checkout of the branch:
-
-```bash
-git remote add home https://github.com/goolug/kzn-logo
-git push -u home HEAD:main
-```
-
-(Or just tell the Claude session "push it" — it knows this drill.)
+Provenance note: `main` was imported via the GitHub API (the creating
+session's git proxy could read but not push the just-created repo), so it
+begins as an import commit. The **full 13-commit development history** is
+preserved on branch `claude/kaizen-interactive-logo-jnys6o` of `goolug/kzn`
+— identical tree, real archaeology. `kzn`'s own `main` is unrelated and
+untouched.
 
 ## Run it
 

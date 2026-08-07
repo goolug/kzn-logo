@@ -27,6 +27,7 @@ class KznLogo extends HTMLElement {
   #appearanceOpts = null;
   #intro = null; // authored opening formation — see the `intro` setter
   #px = null; //   last measured host size in CSS px
+  #io = null;
   #scale = 1; // grid zoom: 1 = four cells on the short side (the default web size)
   #resizeTimer = 0;
 
@@ -141,6 +142,11 @@ class KznLogo extends HTMLElement {
   /** Re-read CSS ink/ground colors (call after a theme change). */
   refreshInk() {
     this.#dyn?.refreshInk?.();
+  }
+
+  /** Frames actually rendered so far (webgl) — for honest fps readouts. */
+  get draws() {
+    return this.#dyn?.draws ?? 0;
   }
 
   /**
@@ -374,6 +380,11 @@ class KznLogo extends HTMLElement {
       }
     });
     this.#ro.observe(this);
+    // scrolled out of view → the renderer stops burning frames entirely
+    this.#io = new IntersectionObserver((entries) =>
+      this.#dyn?.setVisible?.(entries[entries.length - 1].isIntersecting)
+    );
+    this.#io.observe(this);
   }
 
   /**
@@ -399,6 +410,8 @@ class KznLogo extends HTMLElement {
   #unmount() {
     this.#ro?.disconnect();
     this.#ro = null;
+    this.#io?.disconnect();
+    this.#io = null;
     clearTimeout(this.#resizeTimer);
     this.#dyn?.destroy();
     this.#dyn = null;
@@ -473,7 +486,12 @@ class KznLogo extends HTMLElement {
         lines: null,
       };
     } else {
-      f = generate(w, h, `${this.#base}#${this.#step}`, this.#engineOpts);
+      // steer away from where the dots already sit, so every shuffle
+      // genuinely relocates (no dot camping in its corner for five clicks)
+      f = generate(w, h, `${this.#base}#${this.#step}`, {
+        ...this.#engineOpts,
+        avoid: this.#dyn?.formation?.dots || null,
+      });
     }
     // the view may be a window into (zoom in) or an extension of (zoom out)
     // the generation canvas; gridlines cover whichever is larger

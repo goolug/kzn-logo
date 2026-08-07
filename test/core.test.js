@@ -149,6 +149,32 @@ test('deterministic: same inputs, same formation', () => {
     }
 });
 
+test('avoid: consecutive shuffles genuinely relocate the dots', () => {
+  let camped = 0;
+  let total = 0;
+  for (let s = 0; s < 30; s++) {
+    let prev = generate(8, 4, `chain${s}#1`, FAST);
+    for (let step = 2; step <= 5; step++) {
+      const next = generate(8, 4, `chain${s}#${step}`, {
+        ...FAST,
+        avoid: prev.dots,
+      });
+      for (let i = 1; i < next.dots.length; i++) {
+        total++;
+        let near = false;
+        for (const p of prev.dots)
+          if (dist(next.dots[i], p) < 0.3) near = true;
+        if (near) camped++;
+      }
+      prev = next;
+    }
+  }
+  assert.ok(
+    camped / total < 0.25,
+    `too many dots kept their seats (${camped}/${total})`
+  );
+});
+
 test('seeds differ: different seed, different formation (usually)', () => {
   let same = 0;
   for (let i = 0; i < 40; i++) {

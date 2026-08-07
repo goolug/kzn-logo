@@ -43,20 +43,36 @@ const state = {
   difdir: num('difdir', 45),
   diftight: num('diftight', 0.75),
   grain: num('grain', 0),
+  fogspeed: num('fogspeed', 0.2),
+  rscale: num('rscale', 1),
+  order: (params.get('order') || 'fog,bokeh,rays,zoom,diffuse').split(','),
+  bg0: params.get('bg0') || 'FFFBF8',
+  bg1: params.get('bg1') || 'F2E7E8',
+  bg2: params.get('bg2') || 'D3D0DE',
+  bgmid: num('bgmid', 0.4844),
+  noise: num('noise', 1),
   duration: num('duration', 750),
   stagger: num('stagger', 45),
   panel: params.get('panel') !== '0',
 };
 const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
+const ORDERABLE = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse'];
+state.order = state.order.filter((n) => ORDERABLE.includes(n));
+for (const n of ORDERABLE) if (!state.order.includes(n)) state.order.push(n);
 const DEFAULTS = {
   seed: 'kzn', scale: 1.31, ink: '1E1E1E', alpha: 1, blend: 'normal',
-  soft: 0, fuse: 0.3, difdir: 45, diftight: 0.75, duration: 750, stagger: 45,
-  panel: true,
+  soft: 0, fuse: 0.3, difdir: 45, diftight: 0.75, fogspeed: 0.2, rscale: 1,
+  bg0: 'FFFBF8', bg1: 'F2E7E8', bg2: 'D3D0DE', bgmid: 0.4844, noise: 1,
+  duration: 750, stagger: 45, panel: true,
 };
 
 function syncURL() {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(state)) {
+    if (k === 'order') {
+      if (v.join(',') !== 'fog,bokeh,rays,zoom,diffuse') p.set(k, v.join(','));
+      continue;
+    }
     if (k in DEFAULTS && v === DEFAULTS[k]) continue;
     if (v !== '' && v !== false && v !== 0) p.set(k, v === true ? '1' : v);
   }
@@ -107,6 +123,9 @@ function applyFx() {
     difAngle: state.difdir,
     difTight: state.diftight,
     grain: state.grain,
+    fogSpeed: state.fogspeed,
+    renderScale: state.rscale,
+    order: state.order,
   };
   for (const k of FX) {
     $(k).value = state[k];
@@ -116,6 +135,28 @@ function applyFx() {
   $('difdirOut').textContent = state.difdir + '°';
   $('diftight').value = state.diftight;
   $('diftightOut').textContent = state.diftight.toFixed(2);
+  $('fogspeed').value = state.fogspeed;
+  $('fogspeedOut').textContent = state.fogspeed.toFixed(2);
+  $('rscale').value = state.rscale;
+  $('rscaleOut').textContent = state.rscale.toFixed(2) + '×';
+}
+
+function applyOrder() {
+  const box = $('fxOrder');
+  for (const name of state.order) box.appendChild($('fx-' + name));
+}
+
+function applyGround() {
+  frame.style.background = `linear-gradient(180deg, #${state.bg0} 0%, #${state.bg1} ${(state.bgmid * 100).toFixed(2)}%, #${state.bg2} 100%)`;
+  document.querySelector('svg.noise').style.opacity = state.noise;
+  $('bg0').value = '#' + state.bg0;
+  $('bg1').value = '#' + state.bg1;
+  $('bg2').value = '#' + state.bg2;
+  $('bgmid').value = state.bgmid;
+  $('bgmidOut').textContent = (state.bgmid * 100).toFixed(0) + '%';
+  $('noiseAmt').value = state.noise;
+  $('noiseOut').textContent = state.noise.toFixed(2);
+  logo.refreshInk();
 }
 
 function applyPanel() {
@@ -147,6 +188,37 @@ slider('stagger', 'stagger', applyFormation);
 for (const k of FX) slider(k, k, applyFx);
 slider('difdir', 'difdir', applyFx);
 slider('diftight', 'diftight', applyFx);
+slider('fogspeed', 'fogspeed', applyFx);
+slider('rscale', 'rscale', applyFx);
+slider('bgmid', 'bgmid', applyGround);
+slider('noiseAmt', 'noise', applyGround);
+
+for (const btn of document.querySelectorAll('button.up'))
+  btn.addEventListener('click', () => {
+    const name = btn.dataset.fx;
+    const i = state.order.indexOf(name);
+    if (i > 0) {
+      state.order.splice(i, 1);
+      state.order.splice(i - 1, 0, name);
+      applyOrder();
+      applyFx();
+      syncURL();
+    }
+  });
+
+for (const id of ['bg0', 'bg1', 'bg2'])
+  $(id).addEventListener('input', () => {
+    state[id] = $(id).value.slice(1);
+    applyGround();
+    syncURL();
+  });
+$('groundReset').onclick = () => {
+  Object.assign(state, {
+    bg0: 'FFFBF8', bg1: 'F2E7E8', bg2: 'D3D0DE', bgmid: 0.4844, noise: 1,
+  });
+  applyGround();
+  syncURL();
+};
 
 $('blend').addEventListener('change', () => {
   state.blend = $('blend').value;
@@ -197,11 +269,22 @@ new ResizeObserver(([e]) => {
     `${Math.round(e.contentRect.width)} × ${Math.round(e.contentRect.height)}`;
 }).observe(frame);
 
+// --- fps: renders per second, straight from the renderer (0 when idle) ----
+let lastDraws = 0;
+setInterval(() => {
+  const d = logo.draws;
+  const fps = d - lastDraws;
+  lastDraws = d;
+  $('fps').textContent = fps > 0 ? fps + ' fps' : '';
+}, 1000);
+
 // --- boot -----------------------------------------------------------------
 logo.setAttribute('seed', state.seed);
 applyFormation();
 applyDots();
 applyFx();
+applyOrder();
+applyGround();
 applyPanel();
 logo.intro = INTRO;
 for (let i = 0, n = num('step', 0); i < n; i++) logo.shuffle();

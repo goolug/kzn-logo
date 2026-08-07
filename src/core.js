@@ -122,6 +122,12 @@ export const defaults = {
   count: 6,
   /** Candidate formations scored per generate() call (quality vs. cost). */
   rollouts: 48,
+  /**
+   * Positions to steer away from — normally the previous formation's dots,
+   * so consecutive shuffles genuinely relocate instead of a far dot keeping
+   * its corner seat forever. Soft penalty, not a ban.
+   */
+  avoid: null,
 };
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -177,8 +183,14 @@ export function generate(w, h, seed, options = {}) {
   let best = null;
   let bestScore = -Infinity;
 
+  const avoid = Array.isArray(o.avoid) ? o.avoid : [];
+
   for (let roll = 0; roll < o.rollouts; roll++) {
     const cands = candidatePositions(limX, limY, o.placement, rnd);
+    const stale = cands.map((c) => {
+      for (const a of avoid) if (dist(c, a) < 0.3) return 0.6;
+      return 0;
+    });
     let maxD = 0;
     for (const c of cands) maxD = Math.max(maxD, len(c));
     const reach = Math.max(o.spread * maxD, R + n * o.rankStep + 0.01);
@@ -204,7 +216,7 @@ export function generate(w, h, seed, options = {}) {
           for (const q of placed)
             if (dist(p, q) < minCenterDist) { ok = false; break; }
           if (!ok) continue;
-          const cost = Math.abs(d - target) + 0.18 * rnd();
+          const cost = Math.abs(d - target) + 0.18 * rnd() + stale[c];
           if (cost < bCost) { bCost = cost; bi = c; }
         }
         return bi;

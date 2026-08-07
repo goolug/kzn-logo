@@ -124,6 +124,12 @@ const defaults = {
   count: 6,
   /** Candidate formations scored per generate() call (quality vs. cost). */
   rollouts: 48,
+  /**
+   * Positions to steer away from — normally the previous formation's dots,
+   * so consecutive shuffles genuinely relocate instead of a far dot keeping
+   * its corner seat forever. Soft penalty, not a ban.
+   */
+  avoid: null,
 };
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -179,8 +185,14 @@ function generate(w, h, seed, options = {}) {
   let best = null;
   let bestScore = -Infinity;
 
+  const avoid = Array.isArray(o.avoid) ? o.avoid : [];
+
   for (let roll = 0; roll < o.rollouts; roll++) {
     const cands = candidatePositions(limX, limY, o.placement, rnd);
+    const stale = cands.map((c) => {
+      for (const a of avoid) if (dist(c, a) < 0.3) return 0.6;
+      return 0;
+    });
     let maxD = 0;
     for (const c of cands) maxD = Math.max(maxD, len(c));
     const reach = Math.max(o.spread * maxD, R + n * o.rankStep + 0.01);
@@ -206,7 +218,7 @@ function generate(w, h, seed, options = {}) {
           for (const q of placed)
             if (dist(p, q) < minCenterDist) { ok = false; break; }
           if (!ok) continue;
-          const cost = Math.abs(d - target) + 0.18 * rnd();
+          const cost = Math.abs(d - target) + 0.18 * rnd() + stale[c];
           if (cost < bCost) { bCost = cost; bi = c; }
         }
         return bi;
@@ -777,7 +789,9 @@ const LIB = `
   }
 `;
 
-// value-noise fbm — original implementation; drives the fog field
+// value-noise fbm — original implementation; drives the fog field.
+// Time is the noise's DEPTH, not a translation: two seeded slices crossfade,
+// so clouds form and dissolve in place — no sideways drift.
 const FBM = `
   float vnoise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
@@ -788,11 +802,17 @@ const FBM = `
     float d = hash21(i + vec2(1, 1));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y) * 2.0 - 1.0;
   }
+  float vslice(vec2 p, float z) {
+    float fz = floor(z);
+    float u = z - fz;
+    u = u * u * (3.0 - 2.0 * u);
+    return mix(vnoise(p + fz * 17.17), vnoise(p + (fz + 1.0) * 17.17), u);
+  }
   float fbm(vec2 p, float t) {
     mat2 rot = mat2(0.6, -0.8, 0.8, 0.6);
     float n = 0.0, amp = 0.55;
     for (int i = 0; i < 5; i++) {
-      n += vnoise(p + vec2(t * 0.35, -t * 0.22) + float(i) * 7.31) * amp;
+      n += vslice(p + float(i) * 7.31, t + float(i) * 0.37) * amp;
       p = rot * p * 1.9;
       amp *= 0.55;
     }
@@ -805,7 +825,7 @@ const FBM = `
     vec2 st = (uv * aspect - vec2(0.504, 0.564) * aspect) * mult;
     float c = cos(1.0128), s = sin(1.0128);
     st = mat2(c, -s, s, c) * st;
-    float n = fbm(st - vec2(t * 0.048), t);
+    float n = fbm(st, t * 3.0);
     n = n / (1.0 + abs(n));
     return clamp(n * 2.0, 0.0, 1.0);
   }
@@ -884,22 +904,35 @@ void main() {
   }
 }`;
 
-// fog blur: exponential-falloff directional blur whose radius is modulated
-// by the fog field (radius 1%–3% of the frame, as in the source scene)
-const FOGBLUR_FS = `#version 300 es
+// the drifting fbm field, computed ONCE per frame at quarter res — the blur
+// and composite passes sample this texture instead of re-evaluating noise
+const FIELD_FS = `#version 300 es
 precision highp float;
-uniform sampler2D uTex;
 uniform vec2 uRes;
-uniform vec2 uDir;
 uniform float uTime;
-uniform float uAmt;
 out vec4 outColor;
 ${LIB}
 ${FBM}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
+  float f = fogField(uv, uRes.x / uRes.y, uTime);
+  outColor = vec4(f, f, f, 1.0);
+}`;
+
+// fog blur: exponential-falloff directional blur whose radius is modulated
+// by the fog field (radius 1%–3% of the frame, as in the source scene)
+const FOGBLUR_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform sampler2D uField;
+uniform vec2 uRes;
+uniform vec2 uDir;
+uniform float uAmt;
+out vec4 outColor;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes;
   float ar = uRes.x / uRes.y;
-  float f = fogField(uv, ar, uTime);
+  float f = texture(uField, uv).r;
   float radius = mix(0.01, 0.03, clamp(8.0 * f * 0.35, 0.0, 1.0)) * uAmt;
   vec2 dir = normalize(uDir) / vec2(ar, 1.0);
   vec4 acc = texture(uTex, uv);
@@ -921,6 +954,7 @@ const FOGCOMP_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uTex;   // sharp composite
 uniform sampler2D uBlur;  // blurred dot coverage — the halo field
+uniform sampler2D uField; // the precomputed fbm field
 uniform vec2 uRes;
 uniform float uTime;
 uniform float uFog;
@@ -932,7 +966,6 @@ uniform vec3 uBgStops[3];
 uniform float uBgMid;
 out vec4 outColor;
 ${LIB}
-${FBM}
 vec3 bgAt(float t) {
   if (uBgMode < 0.5) return uBg.rgb;
   return t < uBgMid
@@ -942,10 +975,9 @@ vec3 bgAt(float t) {
 uniform float uOverlay; // 1 = transparent dot-layer pipeline (CSS owns the ground)
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
-  float ar = uRes.x / uRes.y;
   vec4 base = texture(uTex, uv);
   float halo = texture(uBlur, uv).r;
-  float mask = fogField(uv, ar, uTime) * uFog;
+  float mask = texture(uField, uv).r * uFog;
   float presence = smoothstep(0.0, 0.12, halo);
   float grain = hash21(uv * uRes.xy / 100.0 + fract(uTime));
   float light = aces(vec3(halo * 0.8)).r + grain * 0.05 * uGrain;
@@ -1178,6 +1210,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
 
   const prg = {
     scene: compile(SCENE_FS),
+    field: compile(FIELD_FS),
     fogBlur: compile(FOGBLUR_FS),
     fogComp: compile(FOGCOMP_FS),
     bokeh: compile(BOKEH_FS),
@@ -1206,9 +1239,21 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     bg: [1, 0.984, 0.973, 1],
     bgGrad: null, // { mid, stops: [rgb, rgb, rgb] } when the ground is a gradient
     appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0, fuse: 0 },
-    effects: { ...ZERO_STACK, difAngle: 45, difTight: 0.75 },
+    effects: {
+      ...ZERO_STACK,
+      difAngle: 45,
+      difTight: 0.75,
+      fogSpeed: 0.2, //   the source layer's speed
+      renderScale: 1, //  resolution factor for the whole chain
+      order: null, //     pass order, e.g. ['rays','fog','bokeh','zoom','diffuse']
+    },
     pxW: 0,
     pxH: 0,
+    cssW: 0,
+    cssH: 0,
+    dpr: 1,
+    draws: 0, //       frames actually rendered — an honest fps source
+    offscreen: false,
     t0: performance.now(),
   };
 
@@ -1243,6 +1288,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     makeTarget('halfB', hw, hh);
     makeTarget('quarterA', qw, qh);
     makeTarget('quarterB', qw, qh);
+    makeTarget('quarterC', qw, qh); // the fog field lives here per frame
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
@@ -1307,6 +1353,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
 
   function draw() {
     if (!state.formation || !state.pxW) return;
+    state.draws++;
     if (!stackActive()) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, state.pxW, state.pxH);
@@ -1317,8 +1364,9 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     }
 
     const e = fx();
-    const time = state.reduced ? 0 : ((performance.now() - state.t0) / 1000) * 0.2 * 0.05;
-    // "fog time" advances at layer speed 0.2 with the scene's 0.05 multiplier
+    const time = state.reduced
+      ? 0
+      : ((performance.now() - state.t0) / 1000) * 0.05 * (e.fogSpeed ?? 0.2);
 
     // with an explicit background the canvas owns the ground (opaque);
     // otherwise the whole chain runs transparent and CSS composites it
@@ -1326,99 +1374,111 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     drawScene('fullA', ownsGround ? 1 : 0);
     let cur = 'fullA'; // name of the current full-res composite
     let spare = 'fullB';
-
-    // 1 · fog — the dots' own light (coverage on black, quarter res) gets a
-    //     noise-modulated exponential blur; the composite pushes pixels
-    //     toward the ink under the fbm mask. Clipped to the dots by design.
-    if (e.fog > 0 || e.grain > 0) {
-      drawScene('quarterA', 2);
-      pass(prg.fogBlur, 'quarterB', (u) => {
-        bindTex(0, targets.quarterA.tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform2f(u.uDir, 1, 0);
-        gl.uniform1f(u.uTime, time);
-        gl.uniform1f(u.uAmt, Math.max(e.fog, 0.001));
-      });
-      pass(prg.fogBlur, 'quarterA', (u) => {
-        bindTex(0, targets.quarterB.tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform2f(u.uDir, 0, 1);
-        gl.uniform1f(u.uTime, time);
-        gl.uniform1f(u.uAmt, Math.max(e.fog, 0.001));
-      });
-      pass(prg.fogComp, spare, (u) => {
-        bindTex(0, targets[cur].tex);
-        bindTex(1, targets.quarterA.tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1i(u.uBlur, 1);
-        gl.uniform1f(u.uTime, time);
-        gl.uniform1f(u.uFog, e.fog);
-        gl.uniform1f(u.uGrain, e.grain);
-        gl.uniform1f(u.uOverlay, ownsGround ? 0 : 1);
-        gl.uniform4fv(u.uInk, state.ink);
-        gl.uniform4fv(u.uBg, state.bg);
-        bgUniforms(u);
-      });
+    const swap = () => {
       [cur, spare] = [spare, cur];
-    }
+    };
 
-    // 2 · bokeh — golden-angle disc blur at half res; the blurred field
-    //     replaces the frame (as in the source scene), upsampled linearly
-    if (e.bokeh > 0) {
-      pass(prg.bokeh, 'halfA', (u) => {
-        bindTex(0, targets[cur].tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1f(u.uAmt, e.bokeh);
-      });
-      pass(prg.grade, spare, (u) => {
-        bindTex(0, targets.halfA.tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1f(u.uTintAmt, 0);
-        gl.uniform3f(u.uTintInk, 0, 0, 0);
-        gl.uniform3f(u.uTintBg, 0, 0, 0);
-      });
-      [cur, spare] = [spare, cur];
-    }
+    // each pass is a named stage; e.order rearranges the chain freely
+    const stages = {
+      // fog — the dots' own light (coverage on black, quarter res) gets a
+      // field-modulated exponential blur; the composite pushes pixels toward
+      // the ink under the fbm mask. The field itself renders once per frame.
+      fog: () => {
+        if (!(e.fog > 0 || e.grain > 0)) return;
+        pass(prg.field, 'quarterC', (u) => gl.uniform1f(u.uTime, time));
+        drawScene('quarterA', 2);
+        for (const [src, dst, dx, dy] of [
+          ['quarterA', 'quarterB', 1, 0],
+          ['quarterB', 'quarterA', 0, 1],
+        ])
+          pass(prg.fogBlur, dst, (u) => {
+            bindTex(0, targets[src].tex);
+            bindTex(1, targets.quarterC.tex);
+            gl.uniform1i(u.uTex, 0);
+            gl.uniform1i(u.uField, 1);
+            gl.uniform2f(u.uDir, dx, dy);
+            gl.uniform1f(u.uAmt, Math.max(e.fog, 0.001));
+          });
+        pass(prg.fogComp, spare, (u) => {
+          bindTex(0, targets[cur].tex);
+          bindTex(1, targets.quarterA.tex);
+          bindTex(2, targets.quarterC.tex);
+          gl.uniform1i(u.uTex, 0);
+          gl.uniform1i(u.uBlur, 1);
+          gl.uniform1i(u.uField, 2);
+          gl.uniform1f(u.uTime, time);
+          gl.uniform1f(u.uFog, e.fog);
+          gl.uniform1f(u.uGrain, e.grain);
+          gl.uniform1f(u.uOverlay, ownsGround ? 0 : 1);
+          gl.uniform4fv(u.uInk, state.ink);
+          gl.uniform4fv(u.uBg, state.bg);
+          bgUniforms(u);
+        });
+        swap();
+      },
+      // bokeh — golden-angle disc blur at half res; replaces the frame
+      bokeh: () => {
+        if (!(e.bokeh > 0)) return;
+        pass(prg.bokeh, 'halfA', (u) => {
+          bindTex(0, targets[cur].tex);
+          gl.uniform1i(u.uTex, 0);
+          gl.uniform1f(u.uAmt, e.bokeh);
+        });
+        pass(prg.grade, spare, (u) => {
+          bindTex(0, targets.halfA.tex);
+          gl.uniform1i(u.uTex, 0);
+          gl.uniform1f(u.uTintAmt, 0);
+          gl.uniform3f(u.uTintInk, 0, 0, 0);
+          gl.uniform3f(u.uTintBg, 0, 0, 0);
+        });
+        swap();
+      },
+      // god rays — half-res march toward the light, added over the frame
+      rays: () => {
+        if (!(e.rays > 0)) return;
+        pass(prg.rays, 'halfB', (u) => {
+          bindTex(0, targets[cur].tex);
+          gl.uniform1i(u.uTex, 0);
+          gl.uniform1f(u.uAmt, e.rays);
+        });
+        pass(prg.add, spare, (u) => {
+          bindTex(0, targets[cur].tex);
+          bindTex(1, targets.halfB.tex);
+          gl.uniform1i(u.uTex, 0);
+          gl.uniform1i(u.uAddT, 1);
+        });
+        swap();
+      },
+      // zoom blur — radial streaks, gated off near the center
+      zoom: () => {
+        if (!(e.zoom > 0)) return;
+        pass(prg.zoom, spare, (u) => {
+          bindTex(0, targets[cur].tex);
+          gl.uniform1i(u.uTex, 0);
+          gl.uniform1f(u.uAmt, e.zoom);
+        });
+        swap();
+      },
+      // diffuse — static scatter, sharp center / dissolved edges
+      diffuse: () => {
+        if (!(e.diffuse > 0)) return;
+        pass(prg.diffuse, spare, (u) => {
+          bindTex(0, targets[cur].tex);
+          gl.uniform1i(u.uTex, 0);
+          gl.uniform1f(u.uAmt, e.diffuse);
+          gl.uniform1f(u.uDifAngle, ((e.difAngle ?? 45) * Math.PI) / 180);
+          gl.uniform1f(u.uDifTight, e.difTight ?? 0.75);
+        });
+        swap();
+      },
+    };
+    const order =
+      Array.isArray(e.order) && e.order.length
+        ? e.order
+        : ['fog', 'bokeh', 'rays', 'zoom', 'diffuse'];
+    for (const name of order) stages[name]?.();
 
-    // 3 · god rays — half-res march toward the light, added over the frame
-    if (e.rays > 0) {
-      pass(prg.rays, 'halfB', (u) => {
-        bindTex(0, targets[cur].tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1f(u.uAmt, e.rays);
-      });
-      pass(prg.add, spare, (u) => {
-        bindTex(0, targets[cur].tex);
-        bindTex(1, targets.halfB.tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1i(u.uAddT, 1);
-      });
-      [cur, spare] = [spare, cur];
-    }
-
-    // 4 · zoom blur — radial streaks, gated off near the center
-    if (e.zoom > 0) {
-      pass(prg.zoom, spare, (u) => {
-        bindTex(0, targets[cur].tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1f(u.uAmt, e.zoom);
-      });
-      [cur, spare] = [spare, cur];
-    }
-
-    // 5 · diffuse — static scatter, sharp center / dissolved edges
-    if (e.diffuse > 0) {
-      pass(prg.diffuse, spare, (u) => {
-        bindTex(0, targets[cur].tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1f(u.uAmt, e.diffuse);
-        gl.uniform1f(u.uDifAngle, ((e.difAngle ?? 45) * Math.PI) / 180);
-        gl.uniform1f(u.uDifTight, e.difTight ?? 0.75);
-      });
-      [cur, spare] = [spare, cur];
-    }
-
-    // 6 · grade to screen (duotone tint for non-B&W colorways, or plain blit)
+    // grade to screen (duotone tint for non-B&W colorways, or plain blit)
     pass(prg.grade, null, (u) => {
       bindTex(0, targets[cur].tex);
       gl.uniform1i(u.uTex, 0);
@@ -1431,8 +1491,8 @@ function createWebGLRenderer(canvas, host, opts = {}) {
 
   // --- loop ---------------------------------------------------------------
   const needsLoop = () =>
-    !!state.anims ||
-    (!state.reduced && (fx().fog > 0 || fx().grain > 0));
+    !state.offscreen &&
+    (!!state.anims || (!state.reduced && (fx().fog > 0 || fx().grain > 0)));
 
   function tick(now) {
     state.raf = 0;
@@ -1450,6 +1510,23 @@ function createWebGLRenderer(canvas, host, opts = {}) {
 
   function ensureLoop() {
     if (!state.raf && needsLoop()) state.raf = requestAnimationFrame(tick);
+  }
+
+  // canvas backing size = css × dpr (capped 2) × renderScale — the whole
+  // chain scales with it, so renderScale is the master performance lever
+  function applySize() {
+    if (!state.cssW) return;
+    const scale =
+      Math.min(state.dpr, 2) * Math.max(0.25, Math.min(1, state.effects.renderScale || 1));
+    const w = Math.max(1, Math.round(state.cssW * scale));
+    const h = Math.max(1, Math.round(state.cssH * scale));
+    if (w === state.pxW && h === state.pxH) return;
+    state.pxW = w;
+    state.pxH = h;
+    canvas.width = w;
+    canvas.height = h;
+    allocTargets();
+    draw();
   }
 
   function readColors() {
@@ -1531,9 +1608,11 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       draw();
     },
     setEffects(patch) {
+      const prevScale = state.effects.renderScale;
       Object.assign(state.effects, patch);
       readColors();
       syncCssBlend();
+      if (state.effects.renderScale !== prevScale) applySize();
       draw();
       ensureLoop();
     },
@@ -1558,16 +1637,24 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       return state.current.map((d) => d.slice());
     },
     resizePx(cssW, cssH, dpr) {
-      const scale = Math.min(dpr || 1, 2);
-      const w = Math.max(1, Math.round(cssW * scale));
-      const h = Math.max(1, Math.round(cssH * scale));
-      if (w === state.pxW && h === state.pxH) return;
-      state.pxW = w;
-      state.pxH = h;
-      canvas.width = w;
-      canvas.height = h;
-      allocTargets();
-      draw();
+      state.cssW = cssW;
+      state.cssH = cssH;
+      state.dpr = dpr || 1;
+      applySize();
+    },
+    /** Pause rendering entirely while scrolled out of view. */
+    setVisible(v) {
+      state.offscreen = !v;
+      if (v) {
+        draw();
+        ensureLoop();
+      } else if (state.raf) {
+        cancelAnimationFrame(state.raf);
+        state.raf = 0;
+      }
+    },
+    get draws() {
+      return state.draws;
     },
     get formation() {
       return state.formation;
@@ -1614,6 +1701,7 @@ class KznLogo extends HTMLElement {
   #appearanceOpts = null;
   #intro = null; // authored opening formation — see the `intro` setter
   #px = null; //   last measured host size in CSS px
+  #io = null;
   #scale = 1; // grid zoom: 1 = four cells on the short side (the default web size)
   #resizeTimer = 0;
 
@@ -1728,6 +1816,11 @@ class KznLogo extends HTMLElement {
   /** Re-read CSS ink/ground colors (call after a theme change). */
   refreshInk() {
     this.#dyn?.refreshInk?.();
+  }
+
+  /** Frames actually rendered so far (webgl) — for honest fps readouts. */
+  get draws() {
+    return this.#dyn?.draws ?? 0;
   }
 
   /**
@@ -1961,6 +2054,11 @@ class KznLogo extends HTMLElement {
       }
     });
     this.#ro.observe(this);
+    // scrolled out of view → the renderer stops burning frames entirely
+    this.#io = new IntersectionObserver((entries) =>
+      this.#dyn?.setVisible?.(entries[entries.length - 1].isIntersecting)
+    );
+    this.#io.observe(this);
   }
 
   /**
@@ -1986,6 +2084,8 @@ class KznLogo extends HTMLElement {
   #unmount() {
     this.#ro?.disconnect();
     this.#ro = null;
+    this.#io?.disconnect();
+    this.#io = null;
     clearTimeout(this.#resizeTimer);
     this.#dyn?.destroy();
     this.#dyn = null;
@@ -2060,7 +2160,12 @@ class KznLogo extends HTMLElement {
         lines: null,
       };
     } else {
-      f = generate(w, h, `${this.#base}#${this.#step}`, this.#engineOpts);
+      // steer away from where the dots already sit, so every shuffle
+      // genuinely relocates (no dot camping in its corner for five clicks)
+      f = generate(w, h, `${this.#base}#${this.#step}`, {
+        ...this.#engineOpts,
+        avoid: this.#dyn?.formation?.dots || null,
+      });
     }
     // the view may be a window into (zoom in) or an extension of (zoom out)
     // the generation canvas; gridlines cover whichever is larger

@@ -27,9 +27,7 @@
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
     /* the production ground — the CSS layer beneath the transparent canvas;
        when the treatment stack is on, the canvas paints this same gradient */
-    background:
-      linear-gradient(180deg, rgba(255, 251, 248, 0.5) 0%, rgba(228, 210, 216, 0.5) 48.44%, rgba(166, 165, 196, 0.5) 100%),
-      #fffbf8;
+    background: linear-gradient(180deg, #f2e9f0 0%, #d7d7e2 100%);
   }
   kzn-logo {
     position: absolute;
@@ -136,7 +134,7 @@
           <feFuncA type="discrete" tableValues="1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 "/>
         </feComponentTransfer>
         <feComposite operator="in" in2="SourceGraphic" in="coloredNoise1" result="noise1Clipped"/>
-        <feFlood flood-color="rgba(0, 0, 0, 0.25)" result="color1Flood"/>
+        <feFlood flood-color="rgba(0, 0, 0, 0.1)" result="color1Flood"/>
         <feComposite operator="in" in2="noise1Clipped" in="color1Flood" result="color1"/>
         <feMerge><feMergeNode in="color1"/></feMerge>
       </filter>
@@ -2624,8 +2622,10 @@ const state = {
   rayfollow: num('rayfollow', 0),
   rscale: num('rscale', 1),
   order: (params.get('order') || 'fog,bokeh,rays,zoom,diffuse').split(','),
-  bg0: params.get('bg0') || 'FFFBF8',
-  bg2: params.get('bg2') || 'D3D0DE',
+  // ground from Figma node 206-6604 ("02. Home"): vertical #E4D2E1 → #AFAEC4
+  // under a 50% white veil, pre-composited; grain black @ 0.1
+  bg0: params.get('bg0') || 'F2E9F0',
+  bg2: params.get('bg2') || 'D7D7E2',
   noise: num('noise', 1),
   duration: num('duration', 750),
   stagger: num('stagger', 45),
@@ -2641,7 +2641,7 @@ const DEFAULTS = {
   fogdensity: 1, raymode: 'add', raycolor: '', rayink: 0, rayx: 0.5,
   rayy: 0.44, raydecay: 0.899, raywobble: 0.15, rayfollow: 0, rscale: 1,
   kernel: 'fixed',
-  bg0: 'FFFBF8', bg2: 'D3D0DE', noise: 1,
+  bg0: 'F2E9F0', bg2: 'D7D7E2', noise: 1,
   duration: 750, stagger: 45, panel: true,
 };
 
@@ -2846,7 +2846,7 @@ for (const id of ['bg0', 'bg2'])
     syncURL();
   });
 $('groundReset').onclick = () => {
-  Object.assign(state, { bg0: 'FFFBF8', bg2: 'D3D0DE', noise: 1 });
+  Object.assign(state, { bg0: 'F2E9F0', bg2: 'D7D7E2', noise: 1 });
   applyGround();
   syncURL();
 };

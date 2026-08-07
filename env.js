@@ -57,8 +57,10 @@ const state = {
   rayfollow: num('rayfollow', 0),
   rscale: num('rscale', 1),
   order: (params.get('order') || 'fog,bokeh,rays,zoom,diffuse').split(','),
-  bg0: params.get('bg0') || 'FFFBF8',
-  bg2: params.get('bg2') || 'D3D0DE',
+  // ground from Figma node 206-6604 ("02. Home"): vertical #E4D2E1 → #AFAEC4
+  // under a 50% white veil, pre-composited; grain black @ 0.1
+  bg0: params.get('bg0') || 'F2E9F0',
+  bg2: params.get('bg2') || 'D7D7E2',
   noise: num('noise', 1),
   duration: num('duration', 750),
   stagger: num('stagger', 45),
@@ -74,7 +76,7 @@ const DEFAULTS = {
   fogdensity: 1, raymode: 'add', raycolor: '', rayink: 0, rayx: 0.5,
   rayy: 0.44, raydecay: 0.899, raywobble: 0.15, rayfollow: 0, rscale: 1,
   kernel: 'fixed',
-  bg0: 'FFFBF8', bg2: 'D3D0DE', noise: 1,
+  bg0: 'F2E9F0', bg2: 'D7D7E2', noise: 1,
   duration: 750, stagger: 45, panel: true,
 };
 
@@ -279,7 +281,7 @@ for (const id of ['bg0', 'bg2'])
     syncURL();
   });
 $('groundReset').onclick = () => {
-  Object.assign(state, { bg0: 'FFFBF8', bg2: 'D3D0DE', noise: 1 });
+  Object.assign(state, { bg0: 'F2E9F0', bg2: 'D7D7E2', noise: 1 });
   applyGround();
   syncURL();
 };

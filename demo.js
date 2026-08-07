@@ -38,8 +38,14 @@ const demoState = {
   grain: +(params.get('grain') || 0),
   tint: +(params.get('tint') || 0),
   tintc: params.get('tintc') || 'AFA8D8', // hex without '#'
+  ink: params.get('ink') || '', // '' = auto (CSS currentColor)
+  alpha: +(params.get('alpha') || 1),
+  blend: params.get('blend') || 'normal',
+  soft: +(params.get('soft') || 0),
+  panel: params.get('panel') !== '0',
 };
 const FX_KEYS = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
+const URL_DEFAULTS = { scale: 1, alpha: 1, blend: 'normal', panel: true };
 
 const ASPECTS = {
   mark: 307.2609 / 265.7392,
@@ -52,7 +58,7 @@ const ASPECTS = {
 function syncURL() {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(demoState)) {
-    if (k === 'scale' && v === 1) continue;
+    if (k in URL_DEFAULTS && v === URL_DEFAULTS[k]) continue;
     if (v !== '' && v !== false && v !== 0) p.set(k, v === true ? '1' : v);
   }
   history.replaceState(null, '', '?' + p.toString());
@@ -111,6 +117,24 @@ function applyEffects() {
   }
   $('tintOut').textContent = demoState.tint.toFixed(2);
   $('tintc').value = '#' + demoState.tintc;
+}
+
+function applyAppearance() {
+  logo.appearance = {
+    ink: demoState.ink ? '#' + demoState.ink : null,
+    opacity: demoState.alpha,
+    blend: demoState.blend,
+    soft: demoState.soft,
+  };
+  $('inkc').value = demoState.ink ? '#' + demoState.ink : '#1E1E1E';
+  $('blend').value = demoState.blend;
+  $('alphaOut').textContent = demoState.alpha.toFixed(2);
+  $('softOut').textContent = demoState.soft.toFixed(2);
+}
+
+function applyPanel() {
+  document.body.classList.toggle('nopanel', !demoState.panel);
+  $('panelToggle').classList.toggle('on', demoState.panel);
 }
 
 function applyOptions() {
@@ -215,6 +239,23 @@ select('placement', 'placement', applyOptions);
 select('motion', 'motion', applyOptions);
 select('easing', 'easing', applyOptions);
 select('renderer', 'renderer', applyRenderer);
+select('blend', 'blend', applyAppearance);
+
+$('inkc').addEventListener('input', () => {
+  demoState.ink = $('inkc').value.slice(1);
+  applyAppearance();
+  syncURL();
+});
+$('inkReset').addEventListener('click', () => {
+  demoState.ink = '';
+  applyAppearance();
+  syncURL();
+});
+$('panelToggle').addEventListener('click', () => {
+  demoState.panel = !demoState.panel;
+  applyPanel();
+  syncURL();
+});
 
 const slider = (id, key, apply, parse = parseFloat) => {
   $(id).value = demoState[key];
@@ -232,6 +273,8 @@ slider('count', 'count', applyOptions, (v) => +v);
 slider('scaleR', 'scale', applyOptions);
 for (const k of FX_KEYS) slider(k, k, applyEffects);
 slider('tint', 'tint', applyEffects);
+slider('alpha', 'alpha', applyAppearance);
+slider('soft', 'soft', applyAppearance);
 
 $('scaleReset').addEventListener('click', () => {
   demoState.scale = 1;
@@ -287,10 +330,12 @@ const getInk = () =>
 // --- boot -----------------------------------------------------------------
 applyTheme();
 applyAspect();
+applyPanel();
 logo.setAttribute('seed', demoState.seed);
 applyRenderer();
 applyOptions();
 applyEffects();
+applyAppearance();
 if (demoState.step > 0) {
   // reproduce a linked formation without animating through the sequence
   logo.shuffle(demoState.seed);

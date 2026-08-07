@@ -105,7 +105,8 @@
 
   .panel { display: flex; flex-direction: column; gap: 22px; }
   .group { border-top: 1px solid var(--line); padding-top: 14px; }
-  .group h2 {
+  .group h2,
+  .group summary {
     font: 11px ui-monospace, monospace;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -113,6 +114,17 @@
     margin: 0 0 12px;
     font-weight: 400;
   }
+  .group summary {
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .group summary::-webkit-details-marker { display: none; }
+  .group summary::before { content: '▾ '; }
+  .group:not([open]) summary::before { content: '▸ '; }
+  .group:not([open]) summary { margin-bottom: 0; }
+  body.nopanel main { grid-template-columns: minmax(0, 1fr); }
+  body.nopanel .panel { display: none; }
   .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
   .row label { min-width: 72px; color: var(--soft); }
   .row output { min-width: 52px; text-align: right; color: var(--soft); }
@@ -147,8 +159,11 @@
 </head>
 <body>
 <header>
-  <h1>KAIZEN <span>· logo engine — flat</span></h1>
-  <button id="theme">dark ◐</button>
+  <h1>KAIZEN <span>· logo engine</span></h1>
+  <div style="display: flex; gap: 8px">
+    <button id="panelToggle">controls ◧</button>
+    <button id="theme">dark ◐</button>
+  </div>
 </header>
 
 <main>
@@ -168,8 +183,8 @@
   </section>
 
   <aside class="panel">
-    <div class="group">
-      <h2>Formation</h2>
+    <details class="group" open>
+      <summary>Formation</summary>
       <div class="row">
         <button id="shuffle" class="primary">shuffle ↻</button>
         <button id="rest">rest (mark)</button>
@@ -184,11 +199,11 @@
         <output id="scaleOut"></output>
         <button id="scaleReset" title="back to the default 4-cell grid">reset</button>
       </div>
-      <p class="note">Click empty canvas to shuffle; <strong>drag any dot</strong> — the kernel orbits the center (edge always touching), the others snap along the grid rule and never collide. Same seed &amp; step → same formation, anywhere. Scale 1 = four cells on the short side; zoom in and dots bleed like the blown-up background, zoom out and the grid extends.</p>
-    </div>
+      <p class="note">Click empty canvas to shuffle; <strong>drag any dot</strong> freely — dots slide around each other, nothing covers the crosshair, and the kernel orbits it (<code>drag="grid"</code> restores lattice moves). Same seed &amp; step → same formation, anywhere. Scale 1 = four cells on the short side; zoom in and dots bleed, zoom out and the grid extends.</p>
+    </details>
 
-    <div class="group">
-      <h2>Rules</h2>
+    <details class="group" open>
+      <summary>Rules</summary>
       <div class="row">
         <label for="placement">grid rule</label>
         <select id="placement">
@@ -212,10 +227,42 @@
         <input type="range" id="count" min="4" max="8" step="1" />
         <output id="countOut">6</output>
       </div>
-    </div>
+    </details>
 
-    <div class="group">
-      <h2>Motion</h2>
+    <details class="group">
+      <summary>Dots</summary>
+      <div class="row">
+        <label for="inkc">ink</label>
+        <input type="color" id="inkc" value="#1E1E1E" />
+        <button id="inkReset">auto</button>
+      </div>
+      <div class="row">
+        <label for="alpha">opacity</label>
+        <input type="range" id="alpha" min="0.02" max="1" step="0.01" />
+        <output id="alphaOut"></output>
+      </div>
+      <div class="row">
+        <label for="blend">blend</label>
+        <select id="blend">
+          <option value="normal">normal</option>
+          <option value="difference">difference</option>
+          <option value="multiply">multiply</option>
+          <option value="screen">screen</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="soft">soft edge</label>
+        <input type="range" id="soft" min="0" max="1" step="0.01" />
+        <output id="softOut"></output>
+      </div>
+      <p class="note">
+        The hero comp: Signal #FEA021 · 10% · difference · heavy soft — orange
+        differenced over the pastel ground is what turns periwinkle.
+      </p>
+    </details>
+
+    <details class="group">
+      <summary>Motion</summary>
       <div class="row">
         <label for="motion">style</label>
         <select id="motion">
@@ -241,10 +288,10 @@
         <input type="range" id="stagger" min="0" max="140" step="5" />
         <output id="stagOut"></output>
       </div>
-    </div>
+    </details>
 
-    <div class="group">
-      <h2>Treatment</h2>
+    <details class="group">
+      <summary>Treatment</summary>
       <div class="row">
         <label for="renderer">renderer</label>
         <select id="renderer">
@@ -303,10 +350,10 @@
         prototype's value. Center stays sharp by design. All zeros = exact
         flat parity. Tint is extra, for non-B&amp;W colorways.
       </p>
-    </div>
+    </details>
 
-    <div class="group">
-      <h2>Export</h2>
+    <details class="group" open>
+      <summary>Export</summary>
       <div class="row">
         <button id="dlMark">mark .svg</button>
         <button id="dlCurrent">formation .svg</button>
@@ -317,7 +364,7 @@
         the construction measured in the Figma master. Flip things, find the
         feel, tell me what wins.
       </p>
-    </div>
+    </details>
   </aside>
 </main>
 

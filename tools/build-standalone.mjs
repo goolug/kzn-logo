@@ -34,4 +34,11 @@ const html = (await read('index.html')).replace(
 );
 await writeFile(new URL('../dist/demo-standalone.html', import.meta.url), html);
 
-console.log('dist/kzn-logo.standalone.js + dist/demo-standalone.html written');
+const env = strip(await read('env.js'));
+const envHtml = (await read('env.html')).replace(
+  /<script type="module" src="\.\/env\.js"><\/script>/,
+  () => `<script type="module">\n${lib}\n\n// ---- env.js ----\n${env}\n</script>`
+);
+await writeFile(new URL('../dist/env-standalone.html', import.meta.url), envHtml);
+
+console.log('dist: kzn-logo.standalone.js, demo-standalone.html, env-standalone.html');

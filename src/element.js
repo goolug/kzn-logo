@@ -24,6 +24,8 @@ class KznLogo extends HTMLElement {
   #step = 0; //   0 = the ideal mark; n>0 = generated formation n
   #engineOpts = {};
   #effectsOpts = null;
+  #appearanceOpts = null;
+  #intro = null; // authored opening formation: { r, dots: [[fx, fy]…] } in viewport fractions
   #scale = 1; // grid zoom: 1 = four cells on the short side (the default web size)
   #resizeTimer = 0;
 
@@ -138,6 +140,35 @@ class KznLogo extends HTMLElement {
   /** Re-read CSS ink/ground colors (call after a theme change). */
   refreshInk() {
     this.#dyn?.refreshInk?.();
+  }
+
+  /**
+   * Dot layer look, both renderers: { ink: '#…', opacity: 0..1,
+   * blend: 'normal'|'difference'|'multiply'|'screen', soft: cells }.
+   * (The hero comp: Signal #FEA021, opacity 0.1, difference, heavy soft.)
+   */
+  set appearance(patch) {
+    this.#appearanceOpts = { ...(this.#appearanceOpts || {}), ...patch };
+    this.#dyn?.setAppearance?.(this.#appearanceOpts);
+  }
+
+  get appearance() {
+    return this.#appearanceOpts;
+  }
+
+  /**
+   * Authored opening formation, in viewport fractions (kernel first):
+   * { r: fractionOfHeight, dots: [[fx, fy], …] }. Shown at step 0 instead of
+   * the ideal mark; every shuffle leaves it for engine-generated
+   * constellations solved for the live window — independent of it.
+   */
+  set intro(v) {
+    this.#intro = v;
+    if (this.#step === 0) this.#apply(false);
+  }
+
+  get intro() {
+    return this.#intro;
   }
 
   get formation() {
@@ -309,6 +340,7 @@ class KznLogo extends HTMLElement {
     this.#svg.toggleAttribute('hidden', usingGL);
     this.dataset.rendererActive = usingGL ? 'webgl' : 'svg';
     if (usingGL && this.#effectsOpts) this.#dyn.setEffects(this.#effectsOpts);
+    if (this.#appearanceOpts) this.#dyn.setAppearance?.(this.#appearanceOpts);
 
     this.#dyn.onSettle = () =>
       this.dispatchEvent(
@@ -371,17 +403,29 @@ class KznLogo extends HTMLElement {
 
   #formationForStep() {
     const { w, h, vw, vh } = this.#dims;
-    const f =
-      this.#step === 0
-        ? {
-            w,
-            h,
-            r: R,
-            seed: 'mark',
-            dots: MARK_IDEAL.dots.map((d) => d.slice()),
-            lines: null,
-          }
-        : generate(w, h, `${this.#base}#${this.#step}`, this.#engineOpts);
+    let f;
+    if (this.#step === 0 && this.#intro) {
+      // the authored composition scales with the viewport, like the comp
+      f = {
+        w,
+        h,
+        r: this.#intro.r * vh,
+        seed: 'intro',
+        dots: this.#intro.dots.map(([fx, fy]) => [(fx - 0.5) * vw, (fy - 0.5) * vh]),
+        lines: null,
+      };
+    } else if (this.#step === 0) {
+      f = {
+        w,
+        h,
+        r: R,
+        seed: 'mark',
+        dots: MARK_IDEAL.dots.map((d) => d.slice()),
+        lines: null,
+      };
+    } else {
+      f = generate(w, h, `${this.#base}#${this.#step}`, this.#engineOpts);
+    }
     // the view may be a window into (zoom in) or an extension of (zoom out)
     // the generation canvas; gridlines cover whichever is larger
     f.view = [vw, vh];

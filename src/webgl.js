@@ -85,9 +85,21 @@ uniform vec3 uDots[8];  // x, y (cells, center origin, y down), radius
 uniform int uCount;
 uniform vec4 uInk;
 uniform vec4 uBg;
-uniform float uMode;    // 0 transparent · 1 composite on uBg · 2 coverage-on-black
+uniform float uMode;    // 0 transparent · 1 composite on ground · 2 coverage-on-black
 uniform float uGrid;
+uniform float uBgMode;      // 0 flat uBg · 1 vertical 3-stop gradient
+uniform vec3 uBgStops[3];
+uniform float uBgMid;       // position of the middle stop, 0..1 from the top
+uniform float uInkAlpha;    // dot layer opacity (Figma comp: 0.1)
+uniform int uBlend;         // 0 normal · 1 difference · 2 multiply · 3 screen
+uniform float uSoft;        // edge feather in cells (≈ the comp's layer blur)
 out vec4 outColor;
+vec3 bgAt(float t) { // t: 0 at the top of the canvas
+  if (uBgMode < 0.5) return uBg.rgb;
+  return t < uBgMid
+    ? mix(uBgStops[0], uBgStops[1], t / max(uBgMid, 1e-4))
+    : mix(uBgStops[1], uBgStops[2], (t - uBgMid) / max(1.0 - uBgMid, 1e-4));
+}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes * 2.0 - 1.0;
   vec2 p = vec2(uv.x * uHalf.x, -uv.y * uHalf.y);
@@ -98,10 +110,10 @@ void main() {
   for (int i = 0; i < 8; i++) {
     if (i >= uCount) break;
     float d = length(p - uDots[i].xy) - uDots[i].z;
-    cov = max(cov, 1.0 - smoothstep(-aa, aa, d));
+    cov = max(cov, 1.0 - smoothstep(-aa - uSoft, aa + uSoft, d));
   }
 
-  float a = cov;
+  float gridA = 0.0;
   if (uGrid > 0.5) {
     float lw = max(uHalf.x, uHalf.y) * 2.0 / 420.0; // hairline, as in SVG
     vec2 nearest = vec2(floor(p.x + 0.5), floor(p.y + 0.5));
@@ -111,15 +123,23 @@ void main() {
     float ly = (abs(nearest.y) <= uHalf.y - 0.001)
       ? 1.0 - smoothstep(lw * 0.5, lw * 0.5 + aa, dist.y) : 0.0;
     float cross = (1.0 - smoothstep(lw * 2.4, lw * 2.4 + aa, length(p))) * 0.5;
-    a = max(a, max(max(lx, ly) * 0.18, cross));
+    gridA = max(max(lx, ly) * 0.18, cross);
   }
 
   if (uMode > 1.5) {
     outColor = vec4(vec3(cov), 1.0); // pure dot light — feeds the fog
   } else if (uMode > 0.5) {
-    outColor = vec4(mix(uBg.rgb, uInk.rgb, a), 1.0);
+    vec3 ground = bgAt(1.0 - gl_FragCoord.y / uRes.y);
+    vec3 blended = uBlend == 1 ? abs(ground - uInk.rgb)
+      : uBlend == 2 ? ground * uInk.rgb
+      : uBlend == 3 ? 1.0 - (1.0 - ground) * (1.0 - uInk.rgb)
+      : uInk.rgb;
+    vec3 col = mix(ground, blended, cov * uInkAlpha);
+    outColor = vec4(mix(col, uInk.rgb, gridA), 1.0);
   } else {
-    outColor = vec4(uInk.rgb * a, a); // premultiplied
+    float a = cov * uInkAlpha;
+    outColor = vec4(uInk.rgb * a + uInk.rgb * gridA * (1.0 - a),
+                    min(1.0, a + gridA * (1.0 - a))); // premultiplied
   }
 }`;
 
@@ -166,9 +186,18 @@ uniform float uFog;
 uniform float uGrain;
 uniform vec4 uInk;
 uniform vec4 uBg;
+uniform float uBgMode;
+uniform vec3 uBgStops[3];
+uniform float uBgMid;
 out vec4 outColor;
 ${LIB}
 ${FBM}
+vec3 bgAt(float t) {
+  if (uBgMode < 0.5) return uBg.rgb;
+  return t < uBgMid
+    ? mix(uBgStops[0], uBgStops[1], t / max(uBgMid, 1e-4))
+    : mix(uBgStops[1], uBgStops[2], (t - uBgMid) / max(1.0 - uBgMid, 1e-4));
+}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   float ar = uRes.x / uRes.y;
@@ -178,7 +207,8 @@ void main() {
   float presence = smoothstep(0.0, 0.12, halo);
   float grain = hash21(uv * uRes.xy / 100.0 + fract(uTime));
   float light = aces(vec3(halo * 0.8)).r + grain * 0.05 * uGrain;
-  outColor = vec4(base.rgb + (uInk.rgb - uBg.rgb) * light * mask * presence, 1.0);
+  vec3 ground = bgAt(1.0 - uv.y);
+  outColor = vec4(base.rgb + (uInk.rgb - ground) * light * mask * presence, 1.0);
 }`;
 
 // bokeh: golden-angle disc blur, dithered by gradient noise
@@ -355,6 +385,8 @@ const ZERO_STACK = Object.fromEntries(
   Object.keys(KAIZEN_STACK).map((k) => [k, typeof KAIZEN_STACK[k] === 'number' ? 0 : KAIZEN_STACK[k]])
 );
 
+const BLEND_IDS = { normal: 0, difference: 1, multiply: 2, screen: 3 };
+
 export function createWebGLRenderer(canvas, host, opts = {}) {
   const gl = canvas.getContext('webgl2', {
     alpha: true,
@@ -418,6 +450,8 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     onSettle: null,
     ink: [0.12, 0.12, 0.12, 1],
     bg: [1, 0.984, 0.973, 1],
+    bgGrad: null, // { mid, stops: [rgb, rgb, rgb] } when the ground is a gradient
+    appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0 },
     effects: { ...ZERO_STACK },
     pxW: 0,
     pxH: 0,
@@ -498,7 +532,20 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
       gl.uniform4fv(u.uBg, state.bg);
       gl.uniform1f(u.uMode, mode);
       gl.uniform1f(u.uGrid, state.gridOn ? 1 : 0);
+      const ap = state.appearance;
+      gl.uniform1f(u.uInkAlpha, ap.opacity ?? 1);
+      gl.uniform1i(u.uBlend, BLEND_IDS[ap.blend] ?? 0);
+      gl.uniform1f(u.uSoft, ap.soft ?? 0);
+      bgUniforms(u);
     });
+  }
+
+  // when the stack is off the canvas is transparent — blending against the
+  // page happens in CSS; when the stack is on it happens in-shader
+  function syncCssBlend() {
+    const ap = state.appearance;
+    canvas.style.mixBlendMode =
+      !stackActive() && ap.blend && ap.blend !== 'normal' ? ap.blend : '';
   }
 
   function draw() {
@@ -549,6 +596,7 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
         gl.uniform1f(u.uGrain, e.grain);
         gl.uniform4fv(u.uInk, state.ink);
         gl.uniform4fv(u.uBg, state.bg);
+        bgUniforms(u);
       });
       [cur, spare] = [spare, cur];
     }
@@ -644,19 +692,46 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
   function readColors() {
     if (typeof getComputedStyle !== 'function') return;
     const cs = getComputedStyle(host);
-    state.ink = parseColor(cs.color);
+    state.ink = state.appearance.ink
+      ? parseColor(state.appearance.ink)
+      : parseColor(cs.color);
+    const b = state.effects.background;
+    // ground may be a vertical 3-stop gradient: { gradient: [[pos, color] ×3] }
+    if (b && typeof b === 'object' && Array.isArray(b.gradient) && b.gradient.length >= 3) {
+      state.bgGrad = {
+        mid: b.gradient[1][0],
+        stops: b.gradient.slice(0, 3).map((s) => parseColor(s[1])),
+      };
+      state.bg = state.bgGrad.stops[1];
+      return;
+    }
+    state.bgGrad = null;
     const bgStr =
-      state.effects.background ||
+      (typeof b === 'string' && b) ||
       (() => {
         let el = host;
         while (el) {
-          const b = getComputedStyle(el).backgroundColor;
-          if (b && !b.startsWith('rgba(0, 0, 0, 0)')) return b;
+          const c = getComputedStyle(el).backgroundColor;
+          if (c && !c.startsWith('rgba(0, 0, 0, 0)')) return c;
           el = el.parentElement;
         }
         return document.body ? getComputedStyle(document.body).backgroundColor : '#fff';
       })();
     state.bg = parseColor(bgStr);
+  }
+
+  function bgUniforms(u) {
+    if (u.uBgMode === undefined) return;
+    gl.uniform1f(u.uBgMode, state.bgGrad ? 1 : 0);
+    const flat = new Float32Array(9);
+    if (state.bgGrad)
+      for (let i = 0; i < 3; i++) {
+        flat[i * 3] = state.bgGrad.stops[i][0];
+        flat[i * 3 + 1] = state.bgGrad.stops[i][1];
+        flat[i * 3 + 2] = state.bgGrad.stops[i][2];
+      }
+    gl.uniform3fv(u.uBgStops, flat);
+    gl.uniform1f(u.uBgMid, state.bgGrad ? state.bgGrad.mid : 0.5);
   }
 
   readColors();
@@ -695,8 +770,16 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     setEffects(patch) {
       Object.assign(state.effects, patch);
       readColors();
+      syncCssBlend();
       draw();
       ensureLoop();
+    },
+    /** Dot layer look: { ink, opacity, blend, soft }. */
+    setAppearance(patch) {
+      Object.assign(state.appearance, patch);
+      readColors();
+      syncCssBlend();
+      draw();
     },
     refreshInk() {
       readColors();

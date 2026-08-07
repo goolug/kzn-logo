@@ -1,395 +1,101 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Kaizen — logo engine</title>
-<script>
-  // theme must land before first paint (no flash, no transition on load);
-  // URL param wins, otherwise follow the OS preference
-  document.documentElement.dataset.theme =
-    new URLSearchParams(location.search).get('theme') ||
-    (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-</script>
+<title>KZN — test environment</title>
 <style>
-  :root {
-    --bg: #fffbf8;
-    --ink: #1e1e1e;
-    --line: color-mix(in srgb, var(--ink) 16%, transparent);
-    --soft: color-mix(in srgb, var(--ink) 55%, transparent);
-  }
-  :root[data-theme='dark'] {
-    --bg: #1e1e1e;
-    --ink: #fffbf8;
-  }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
-    background: var(--bg);
-    color: var(--ink);
-    font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    transition: background 0.25s ease, color 0.25s ease;
-    padding: 0 clamp(16px, 4vw, 48px) 64px;
-  }
-  header {
+    min-height: 100vh;
+    background: #2b2a2e; /* neutral shop floor around the frame */
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding: 22px 0 18px;
-    border-bottom: 1px solid var(--line);
-    margin-bottom: 28px;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 28px;
+    font: 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color: #fffbf8;
   }
-  h1 {
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.35em;
-    margin: 0;
-  }
-  h1 span { font-weight: 400; letter-spacing: 0.12em; color: var(--soft); }
-  .mono, button, select, input, output, label {
-    font: 12px/1.4 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  }
-  main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 36px; }
-  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
-  .panel, .group, .row { min-width: 0; }
-
-  #stage {
-    width: 100%;
-    max-width: 100%;
-    border: 1px dashed var(--line);
-    overflow: hidden;
+  #frame {
+    width: 1440px;
+    height: 880px;
     position: relative;
+    overflow: hidden;
+    resize: both;
+    flex: none;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+    /* the production ground — the WebGL canvas paints this same gradient
+       itself when the treatment is on; this CSS layer backs the flat/svg path */
+    background:
+      linear-gradient(180deg, rgba(255, 251, 248, 0.5) 0%, rgba(228, 210, 216, 0.5) 48.44%, rgba(166, 165, 196, 0.5) 100%),
+      #fffbf8;
   }
-  #stage.free { resize: both; aspect-ratio: unset !important; height: 420px; }
-  kzn-logo#logo { width: 100%; height: 100%; }
-  .stagebar {
+  kzn-logo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    color: #1e1e1e;
+  }
+  svg.noise {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .hud {
+    position: fixed;
+    right: 16px;
+    bottom: 12px;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
-    margin-top: 12px;
+    opacity: 0.9;
   }
-  .stagebar .spacer { flex: 1; }
-  #stats { color: var(--soft); }
-
-  button, select {
-    appearance: none;
-    background: none;
-    color: var(--ink);
-    border: 1px solid var(--line);
+  .hud #size { opacity: 0.7; }
+  .hud button, .hud a {
+    font: inherit;
+    color: inherit;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.28);
     border-radius: 3px;
-    padding: 6px 12px;
+    padding: 5px 10px;
     cursor: pointer;
+    text-decoration: none;
   }
-  button:hover, select:hover { border-color: var(--ink); }
-  button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); padding: 8px 18px; }
-  input[type='text'] {
-    background: none;
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: 3px;
-    padding: 6px 10px;
-    width: 110px;
-  }
-  input[type='range'] { accent-color: var(--ink); width: 100%; margin: 0; }
-  input[type='color'] {
-    inline-size: 44px;
-    block-size: 28px;
-    border: 1px solid var(--line);
-    border-radius: 3px;
-    background: none;
-    padding: 2px;
-  }
-  #fxRows.dim { opacity: 0.4; pointer-events: none; }
-
-  .panel { display: flex; flex-direction: column; gap: 22px; }
-  .group { border-top: 1px solid var(--line); padding-top: 14px; }
-  .group h2,
-  .group summary {
-    font: 11px ui-monospace, monospace;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--soft);
-    margin: 0 0 12px;
-    font-weight: 400;
-  }
-  .group summary {
-    cursor: pointer;
-    list-style: none;
-    user-select: none;
-  }
-  .group summary::-webkit-details-marker { display: none; }
-  .group summary::before { content: '▾ '; }
-  .group:not([open]) summary::before { content: '▸ '; }
-  .group:not([open]) summary { margin-bottom: 0; }
-  body.nopanel main { grid-template-columns: minmax(0, 1fr); }
-  body.nopanel .panel { display: none; }
-  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-  .row label { min-width: 72px; color: var(--soft); }
-  .row output { min-width: 52px; text-align: right; color: var(--soft); }
-  .row select { flex: 1 1 0; min-width: 0; }
-  .note { color: var(--soft); font-size: 12px; line-height: 1.6; }
-
-  .strip {
-    margin-top: 48px;
-    border-top: 1px solid var(--line);
-    padding-top: 28px;
-    display: flex;
-    align-items: center;
-    gap: 48px;
-    flex-wrap: wrap;
-  }
-  .lockup { display: flex; align-items: center; gap: 18px; }
-  .lockup .word {
-    font-weight: 700;
-    letter-spacing: 0.35em;
-    font-size: 22px;
-    transform: translateY(1px);
-  }
-  .sizes { display: flex; align-items: flex-end; gap: 28px; }
-  footer {
-    margin-top: 40px;
-    color: var(--soft);
-    font-size: 12px;
-    border-top: 1px solid var(--line);
-    padding-top: 16px;
-  }
+  .hud button:hover, .hud a:hover { border-color: #fffbf8; }
 </style>
 </head>
 <body>
-<header>
-  <h1>KAIZEN <span>· logo engine</span></h1>
-  <div style="display: flex; gap: 8px">
-    <button id="panelToggle">controls ◧</button>
-    <button id="theme">dark ◐</button>
-  </div>
-</header>
-
-<main>
-  <section>
-    <div id="stage"><kzn-logo id="logo" mode="dynamic" interactive drag seed="kzn"></kzn-logo></div>
-    <div class="stagebar">
-      <button data-aspect="mark">mark 1.156:1</button>
-      <button data-aspect="square">1:1</button>
-      <button data-aspect="wide">16:9</button>
-      <button data-aspect="tall">9:16</button>
-      <button data-aspect="ultra">21:9</button>
-      <button data-aspect="free">free ⤡</button>
-      <button id="grid">grid</button>
-      <span class="spacer"></span>
-      <span id="stats" class="mono"></span>
-    </div>
-  </section>
-
-  <aside class="panel">
-    <details class="group" open>
-      <summary>Formation</summary>
-      <div class="row">
-        <button id="shuffle" class="primary">shuffle ↻</button>
-        <button id="rest">rest (mark)</button>
-      </div>
-      <div class="row">
-        <label for="seed">seed</label>
-        <input type="text" id="seed" value="kzn" />
-      </div>
-      <div class="row">
-        <label for="scaleR">scale</label>
-        <input type="range" id="scaleR" min="0.5" max="4" step="0.05" />
-        <output id="scaleOut"></output>
-        <button id="scaleReset" title="back to the default 4-cell grid">reset</button>
-      </div>
-      <p class="note">Click empty canvas to shuffle; <strong>drag any dot</strong> freely — dots slide around each other, nothing covers the crosshair, and the kernel orbits it (<code>drag="grid"</code> restores lattice moves). Same seed &amp; step → same formation, anywhere. Scale 1 = four cells on the short side; zoom in and dots bleed, zoom out and the grid extends.</p>
-    </details>
-
-    <details class="group" open>
-      <summary>Rules</summary>
-      <div class="row">
-        <label for="placement">grid rule</label>
-        <select id="placement">
-          <option value="construction">construction — on lines / hanging</option>
-          <option value="lines">lines — slide along gridlines</option>
-          <option value="points">points — intersections only</option>
-        </select>
-      </div>
-      <div class="row">
-        <label for="gap">min gap</label>
-        <input type="range" id="gap" min="0" max="0.35" step="0.01" />
-        <output id="gapOut"></output>
-      </div>
-      <div class="row">
-        <label for="spread">spread</label>
-        <input type="range" id="spread" min="0.5" max="1" step="0.01" />
-        <output id="spreadOut"></output>
-      </div>
-      <div class="row">
-        <label for="count">dots</label>
-        <input type="range" id="count" min="4" max="8" step="1" />
-        <output id="countOut">6</output>
-      </div>
-    </details>
-
-    <details class="group">
-      <summary>Dots</summary>
-      <div class="row">
-        <label for="inkc">ink</label>
-        <input type="color" id="inkc" value="#1E1E1E" />
-        <button id="inkReset">auto</button>
-      </div>
-      <div class="row">
-        <label for="alpha">opacity</label>
-        <input type="range" id="alpha" min="0.02" max="1" step="0.01" />
-        <output id="alphaOut"></output>
-      </div>
-      <div class="row">
-        <label for="blend">blend</label>
-        <select id="blend">
-          <option value="normal">normal</option>
-          <option value="difference">difference</option>
-          <option value="multiply">multiply</option>
-          <option value="screen">screen</option>
-        </select>
-      </div>
-      <div class="row">
-        <label for="soft">soft edge</label>
-        <input type="range" id="soft" min="0" max="1" step="0.01" />
-        <output id="softOut"></output>
-      </div>
-      <p class="note">
-        The hero comp: Signal #FEA021 · 10% · difference · heavy soft — orange
-        differenced over the pastel ground is what turns periwinkle.
-      </p>
-    </details>
-
-    <details class="group">
-      <summary>Motion</summary>
-      <div class="row">
-        <label for="motion">style</label>
-        <select id="motion">
-          <option value="glide">calm glide</option>
-          <option value="instant">instant snap</option>
-        </select>
-      </div>
-      <div class="row">
-        <label for="easing">easing</label>
-        <select id="easing">
-          <option value="cubic">cubic in-out</option>
-          <option value="quint">quint in-out</option>
-          <option value="linear">linear</option>
-        </select>
-      </div>
-      <div class="row">
-        <label for="duration">duration</label>
-        <input type="range" id="duration" min="150" max="1600" step="10" />
-        <output id="durOut"></output>
-      </div>
-      <div class="row">
-        <label for="stagger">stagger</label>
-        <input type="range" id="stagger" min="0" max="140" step="5" />
-        <output id="stagOut"></output>
-      </div>
-    </details>
-
-    <details class="group">
-      <summary>Treatment</summary>
-      <div class="row">
-        <label for="renderer">renderer</label>
-        <select id="renderer">
-          <option value="svg">flat svg</option>
-          <option value="webgl">webgl</option>
-        </select>
-      </div>
-      <div id="fxRows">
-        <div class="row">
-          <button id="stackOn" class="primary">kaizen stack</button>
-          <button id="stackOff">off (flat)</button>
-        </div>
-        <div class="row">
-          <label for="fog">fog</label>
-          <input type="range" id="fog" min="0" max="2" step="0.05" />
-          <output id="fogOut"></output>
-        </div>
-        <div class="row">
-          <label for="bokeh">bokeh</label>
-          <input type="range" id="bokeh" min="0" max="2" step="0.05" />
-          <output id="bokehOut"></output>
-        </div>
-        <div class="row">
-          <label for="rays">god rays</label>
-          <input type="range" id="rays" min="0" max="2" step="0.05" />
-          <output id="raysOut"></output>
-        </div>
-        <div class="row">
-          <label for="zoom">zoom blur</label>
-          <input type="range" id="zoom" min="0" max="2" step="0.05" />
-          <output id="zoomOut"></output>
-        </div>
-        <div class="row">
-          <label for="diffuse">diffuse</label>
-          <input type="range" id="diffuse" min="0" max="2" step="0.05" />
-          <output id="diffuseOut"></output>
-        </div>
-        <div class="row">
-          <label for="grain">grain</label>
-          <input type="range" id="grain" min="0" max="2" step="0.05" />
-          <output id="grainOut"></output>
-        </div>
-        <div class="row">
-          <label for="tint">tint</label>
-          <input type="range" id="tint" min="0" max="1" step="0.01" />
-          <output id="tintOut"></output>
-        </div>
-        <div class="row">
-          <label for="tintc">tint color</label>
-          <input type="color" id="tintc" value="#AFA8D8" />
-        </div>
-      </div>
-      <p class="note">
-        The stack replicated from the Unicorn Studio prototype (fog → bokeh →
-        god rays → zoom blur → diffuse; grain rides the fog). 1 = the
-        prototype's value. Center stays sharp by design. All zeros = exact
-        flat parity. Tint is extra, for non-B&amp;W colorways.
-      </p>
-    </details>
-
-    <details class="group" open>
-      <summary>Export</summary>
-      <div class="row">
-        <button id="dlMark">mark .svg</button>
-        <button id="dlCurrent">formation .svg</button>
-        <button id="copyLink">copy link</button>
-      </div>
-      <p class="note">
-        Everything above is an open decision, not a commitment — defaults follow
-        the construction measured in the Figma master. Flip things, find the
-        feel, tell me what wins.
-      </p>
-    </details>
-  </aside>
-</main>
-
-<section class="strip">
-  <div class="lockup">
-    <kzn-logo mode="static" style="height: 30px; width: 34.7px"></kzn-logo>
-    <span class="word">KAIZEN</span>
-  </div>
-  <div class="sizes">
-    <kzn-logo mode="static" style="height: 64px; width: 74px"></kzn-logo>
-    <kzn-logo mode="static" style="height: 36px; width: 41.6px"></kzn-logo>
-    <kzn-logo mode="static" style="height: 20px; width: 23.1px"></kzn-logo>
-  </div>
-  <p class="note">
-    The stable symbol — exact Figma coordinates, untouched by the generator.
-    (Wordmark here is placeholder type; production uses Replica.)
-  </p>
-</section>
-
-<footer>
-  Built from first principles measured in Figma (KZN&nbsp;Web · node&nbsp;170-3040):
-  dot ⌀ = 0.775 cell · kernel edge through the crosshair, never its center ·
-  dots on gridlines, resting or hanging · no touching · strict gravity falloff.
-</footer>
-
+<div id="frame">
+  <kzn-logo id="logo" mode="dynamic" renderer="webgl" interactive drag seed="kzn"></kzn-logo>
+  <!-- the production noise plate: same turbulence, same seed — only the
+       background rects are removed from the merge so just the speckle draws -->
+  <svg class="noise" viewBox="0 0 1440 880" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <g filter="url(#kzn_noise)"><rect width="1440" height="880" fill="#fff"/></g>
+    <defs>
+      <filter id="kzn_noise" x="0" y="0" width="1440" height="880" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="2 2" stitchTiles="stitch" numOctaves="3" result="noise" seed="6529"/>
+        <feColorMatrix in="noise" type="luminanceToAlpha" result="alphaNoise"/>
+        <feComponentTransfer in="alphaNoise" result="coloredNoise1">
+          <feFuncA type="discrete" tableValues="1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 "/>
+        </feComponentTransfer>
+        <feComposite operator="in" in2="SourceGraphic" in="coloredNoise1" result="noise1Clipped"/>
+        <feFlood flood-color="rgba(0, 0, 0, 0.25)" result="color1Flood"/>
+        <feComposite operator="in" in2="noise1Clipped" in="color1Flood" result="color1"/>
+        <feMerge><feMergeNode in="color1"/></feMerge>
+      </filter>
+    </defs>
+  </svg>
+</div>
+<div class="hud">
+  <span id="size">1440 × 880</span>
+  <button id="intro">intro</button>
+  <button id="reset">reset 1440×880</button>
+  <a href="./index.html">workbench →</a>
+</div>
 <script type="module">
 // ---- src/core.js ----
 // kzn-logo — core geometry engine. No DOM, no dependencies.
@@ -2452,382 +2158,87 @@ class KznLogo extends HTMLElement {
 
 if (!customElements.get('kzn-logo')) customElements.define('kzn-logo', KznLogo);
 
-// ---- demo.js ----
-// kzn-logo — demo app. Wires the controls to <kzn-logo> and mirrors the
-// state into the URL, so any configuration is a shareable / screenshotable
-// link (e.g. ?renderer=webgl&blur=40&aspect=wide&theme=dark&seed=kzn).
+// ---- env.js ----
+// kzn-logo — site test environment. Recreates the Figma hero (node 179-3924):
+// the production gradient + noise plate, with the authored dot composition as
+// the opening state — Signal #FEA021 at 10%, blend difference, heavy soft
+// edge (the comp's 100px layer blur). Click disperses the dots into
+// engine-generated constellations solved for the live window, independent of
+// the authored opening. Base frame 1440×880; drag the corner handle, `reset`
+// restores base. URL params override anything, e.g.
+//   ?fog=1&bokeh=1  (treatment stack)   ?alpha=.2&blend=normal   ?w=390&h=844
 
-
-
-
-
-const $ = (id) => document.getElementById(id);
-const stage = $('stage');
-const logo = $('logo');
 
 const params = new URLSearchParams(location.search);
-const demoState = {
-  aspect: params.get('aspect') || 'mark',
-  theme:
-    params.get('theme') ||
-    (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
-  grid: params.get('grid') === '1',
-  seed: params.get('seed') || 'kzn',
-  placement: params.get('placement') || defaults.placement,
-  motion: params.get('motion') || 'glide',
-  duration: +(params.get('duration') || 750),
-  stagger: +(params.get('stagger') || 45),
-  easing: params.get('easing') || 'cubic',
-  gap: +(params.get('gap') || defaults.gap),
-  spread: +(params.get('spread') || defaults.spread),
-  count: +(params.get('count') || defaults.count),
-  step: +(params.get('step') || 0),
-  renderer: params.get('renderer') || 'svg',
-  scale: +(params.get('scale') || 1),
-  fog: +(params.get('fog') || 0),
-  bokeh: +(params.get('bokeh') || 0),
-  rays: +(params.get('rays') || 0),
-  zoom: +(params.get('zoom') || 0),
-  diffuse: +(params.get('diffuse') || 0),
-  grain: +(params.get('grain') || 0),
-  tint: +(params.get('tint') || 0),
-  tintc: params.get('tintc') || 'AFA8D8', // hex without '#'
-  ink: params.get('ink') || '', // '' = auto (CSS currentColor)
-  alpha: +(params.get('alpha') || 1),
-  blend: params.get('blend') || 'normal',
-  soft: +(params.get('soft') || 0),
-  panel: params.get('panel') !== '0',
-};
-const FX_KEYS = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
-const URL_DEFAULTS = { scale: 1, alpha: 1, blend: 'normal', panel: true };
+const logo = document.getElementById('logo');
+const frame = document.getElementById('frame');
+const num = (k, d) => +(params.get(k) ?? d);
 
-const ASPECTS = {
-  mark: 307.2609 / 265.7392,
-  square: 1,
-  wide: 16 / 9,
-  tall: 9 / 16,
-  ultra: 21 / 9,
+// the page gradient, pre-composited (the 50%-opacity stops over #FFFBF8):
+//   #FFFBF8 → #F2E7E8 @ 48.44% → #D3D0DE
+const GROUND = {
+  gradient: [
+    [0, '#FFFBF8'],
+    [0.4844, '#F2E7E8'],
+    [1, '#D3D0DE'],
+  ],
 };
 
-function syncURL() {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(demoState)) {
-    if (k in URL_DEFAULTS && v === URL_DEFAULTS[k]) continue;
-    if (v !== '' && v !== false && v !== 0) p.set(k, v === true ? '1' : v);
-  }
-  history.replaceState(null, '', '?' + p.toString());
-}
-
-function applyTheme() {
-  document.documentElement.dataset.theme = demoState.theme;
-  $('theme').textContent = demoState.theme === 'light' ? 'dark ◐' : 'light ◑';
-  logo.refreshInk();
-}
-
-function applyAspect() {
-  const free = demoState.aspect === 'free';
-  stage.classList.toggle('free', free);
-  if (!free) {
-    const ar = ASPECTS[demoState.aspect] || ASPECTS.mark;
-    // width + aspect-ratio only — height always derives, nothing conflicts
-    stage.style.aspectRatio = String(ar);
-    stage.style.width =
-      ar >= 1 ? '100%' : `min(100%, calc(min(66vh, 600px) * ${ar}))`;
-  } else {
-    stage.style.aspectRatio = '';
-    stage.style.width = '';
-  }
-  for (const b of document.querySelectorAll('[data-aspect]'))
-    b.classList.toggle('on', b.dataset.aspect === demoState.aspect);
-}
-
-function applyRenderer() {
-  if (demoState.renderer === 'webgl') logo.setAttribute('renderer', 'webgl');
-  else logo.removeAttribute('renderer');
-  $('renderer').value = demoState.renderer;
-  $('fxRows').classList.toggle('dim', demoState.renderer !== 'webgl');
-  // reflect what actually mounted (webgl may fall back to svg)
-  requestAnimationFrame(() => {
-    const active = logo.dataset.rendererActive || 'svg';
-    if (demoState.renderer === 'webgl' && active === 'svg')
-      $('stats').textContent = 'webgl unavailable — flat fallback';
-  });
-}
-
-function applyEffects() {
-  logo.effects = {
-    fog: demoState.fog,
-    bokeh: demoState.bokeh,
-    rays: demoState.rays,
-    zoom: demoState.zoom,
-    diffuse: demoState.diffuse,
-    grain: demoState.grain,
-    tint: demoState.tint,
-    tintColor: '#' + demoState.tintc,
-  };
-  for (const k of FX_KEYS) {
-    $(k).value = demoState[k];
-    $(k + 'Out').textContent = demoState[k].toFixed(2);
-  }
-  $('tintOut').textContent = demoState.tint.toFixed(2);
-  $('tintc').value = '#' + demoState.tintc;
-}
-
-function applyAppearance() {
-  logo.appearance = {
-    ink: demoState.ink ? '#' + demoState.ink : null,
-    opacity: demoState.alpha,
-    blend: demoState.blend,
-    soft: demoState.soft,
-  };
-  $('inkc').value = demoState.ink ? '#' + demoState.ink : '#1E1E1E';
-  $('blend').value = demoState.blend;
-  $('alphaOut').textContent = demoState.alpha.toFixed(2);
-  $('softOut').textContent = demoState.soft.toFixed(2);
-}
-
-function applyPanel() {
-  document.body.classList.toggle('nopanel', !demoState.panel);
-  $('panelToggle').classList.toggle('on', demoState.panel);
-}
-
-function applyOptions() {
-  logo.options = {
-    placement: demoState.placement,
-    gap: demoState.gap,
-    spread: demoState.spread,
-    count: demoState.count,
-    motion: demoState.motion,
-    duration: demoState.duration,
-    stagger: demoState.stagger,
-    easing: demoState.easing,
-    scale: demoState.scale,
-  };
-  logo.toggleAttribute('grid', demoState.grid);
-  $('grid').classList.toggle('on', demoState.grid);
-  $('scaleOut').textContent = demoState.scale.toFixed(2) + '×';
-  $('gapOut').textContent = demoState.gap.toFixed(2);
-  $('spreadOut').textContent = demoState.spread.toFixed(2);
-  $('countOut').textContent = demoState.count;
-  $('durOut').textContent = demoState.duration + 'ms';
-  $('stagOut').textContent = demoState.stagger + 'ms';
-}
-
-// --- fps meter (measures real frame rate across a transition) -------------
-let fpsRaf = 0;
-function measureFPS() {
-  cancelAnimationFrame(fpsRaf);
-  const t0 = performance.now();
-  let frames = 0;
-  const loop = () => {
-    frames++;
-    fpsRaf = requestAnimationFrame(loop);
-  };
-  fpsRaf = requestAnimationFrame(loop);
-  logo.addEventListener(
-    'kzn-settle',
-    () => {
-      cancelAnimationFrame(fpsRaf);
-      const dt = (performance.now() - t0) / 1000;
-      if (dt > 0.15)
-        $('stats').textContent =
-          `seed ${logo.seed} · ${Math.round(frames / dt)} fps`;
-    },
-    { once: true }
-  );
-}
-
-// --- wiring ---------------------------------------------------------------
-$('shuffle').addEventListener('click', () => {
-  measureFPS();
-  logo.shuffle();
-});
-$('rest').addEventListener('click', () => {
-  measureFPS();
-  logo.rest();
-});
-logo.addEventListener('kzn-shuffle', (e) => {
-  demoState.step = e.detail.step;
-  $('stats').textContent = `seed ${e.detail.seed}`;
-  syncURL();
-});
-logo.addEventListener('kzn-drag', () => {
-  $('stats').textContent = 'custom formation (dragged)';
-});
-
-$('seed').value = demoState.seed;
-$('seed').addEventListener('change', () => {
-  demoState.seed = $('seed').value || 'kzn';
-  logo.setAttribute('seed', demoState.seed);
-  syncURL();
-});
-
-for (const b of document.querySelectorAll('[data-aspect]'))
-  b.addEventListener('click', () => {
-    demoState.aspect = b.dataset.aspect;
-    applyAspect();
-    syncURL();
-  });
-
-$('theme').addEventListener('click', () => {
-  demoState.theme = demoState.theme === 'light' ? 'dark' : 'light';
-  applyTheme();
-  syncURL();
-});
-
-$('grid').addEventListener('click', () => {
-  demoState.grid = !demoState.grid;
-  applyOptions();
-  syncURL();
-});
-
-const select = (id, key, apply) => {
-  $(id).value = demoState[key];
-  $(id).addEventListener('change', () => {
-    demoState[key] = $(id).value;
-    apply();
-    syncURL();
-  });
+// the authored hero composition (measured from Figma), viewport fractions,
+// kernel (nearest center) first; r as a fraction of viewport height
+const INTRO = {
+  r: 0.12728, // 112.0085px on the 880-tall comp
+  dots: [
+    [0.5, 0.44207], //     top middle — this comp's reacher
+    [0.5, 0.77674],
+    [0.17362, 0.44207],
+    [0.82638, 0.44207],
+    [0.17362, 0.97903], // bottom pair sits half off the canvas
+    [0.82638, 0.97903],
+  ],
 };
-select('placement', 'placement', applyOptions);
-select('motion', 'motion', applyOptions);
-select('easing', 'easing', applyOptions);
-select('renderer', 'renderer', applyRenderer);
-select('blend', 'blend', applyAppearance);
 
-$('inkc').addEventListener('input', () => {
-  demoState.ink = $('inkc').value.slice(1);
-  applyAppearance();
-  syncURL();
-});
-$('inkReset').addEventListener('click', () => {
-  demoState.ink = '';
-  applyAppearance();
-  syncURL();
-});
-$('panelToggle').addEventListener('click', () => {
-  demoState.panel = !demoState.panel;
-  applyPanel();
-  syncURL();
-});
+if (params.get('renderer') === 'svg') logo.removeAttribute('renderer');
+if (params.get('seed')) logo.setAttribute('seed', params.get('seed'));
+if (params.get('grid') === '1') logo.setAttribute('grid', '');
 
-const slider = (id, key, apply, parse = parseFloat) => {
-  $(id).value = demoState[key];
-  $(id).addEventListener('input', () => {
-    demoState[key] = parse($(id).value);
-    apply();
-    syncURL();
-  });
+// generated constellations: scale 1.31 makes engine dots (0.3875 cell) land
+// at the intro's 112px — dispersal keeps the authored dot size
+logo.options = { scale: num('scale', 1.31) };
+logo.appearance = {
+  ink: '#' + (params.get('ink') || 'FEA021'), // Signal
+  opacity: num('alpha', 0.1),
+  blend: params.get('blend') || 'difference',
+  soft: num('soft', 0.35), // ≈ the comp's 100px layer blur
 };
-slider('gap', 'gap', applyOptions);
-slider('spread', 'spread', applyOptions);
-slider('duration', 'duration', applyOptions, (v) => +v);
-slider('stagger', 'stagger', applyOptions, (v) => +v);
-slider('count', 'count', applyOptions, (v) => +v);
-slider('scaleR', 'scale', applyOptions);
-for (const k of FX_KEYS) slider(k, k, applyEffects);
-slider('tint', 'tint', applyEffects);
-slider('alpha', 'alpha', applyAppearance);
-slider('soft', 'soft', applyAppearance);
-
-$('scaleReset').addEventListener('click', () => {
-  demoState.scale = 1;
-  $('scaleR').value = 1;
-  applyOptions();
-  syncURL();
-});
-
-const setStack = (on) => {
-  for (const k of FX_KEYS) demoState[k] = on ? 1 : 0;
-  if (!on) demoState.tint = 0;
-  if (on && demoState.renderer !== 'webgl') {
-    demoState.renderer = 'webgl';
-    applyRenderer();
-  }
-  applyEffects();
-  syncURL();
+logo.effects = {
+  // the Figma comp carries no treatment stack — flat by default, params enable
+  fog: num('fog', 0),
+  bokeh: num('bokeh', 0),
+  rays: num('rays', 0),
+  zoom: num('zoom', 0),
+  diffuse: num('diffuse', 0),
+  grain: num('grain', 0),
+  tint: num('tint', 0),
+  tintColor: '#' + (params.get('tintc') || 'AFA8D8'),
+  background: GROUND,
 };
-$('stackOn').addEventListener('click', () => setStack(true));
-$('stackOff').addEventListener('click', () => setStack(false));
+logo.intro = INTRO;
+for (let i = 0, n = num('step', 0); i < n; i++) logo.shuffle();
 
-$('tintc').addEventListener('input', () => {
-  demoState.tintc = $('tintc').value.slice(1);
-  applyEffects();
-  syncURL();
-});
+if (params.get('w')) frame.style.width = params.get('w') + 'px';
+if (params.get('h')) frame.style.height = params.get('h') + 'px';
 
-const download = (name, text) => {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' }));
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
+document.getElementById('reset').onclick = () => {
+  frame.style.width = '1440px';
+  frame.style.height = '880px';
 };
-$('dlMark').addEventListener('click', () =>
-  download('kaizen-mark.svg', toSVG(MARK, { ink: getInk() }))
-);
-$('dlCurrent').addEventListener('click', () =>
-  download(
-    `kaizen-${logo.seed.replace('#', '-')}.svg`,
-    logo.exportSVG({ ink: getInk() })
-  )
-);
-$('copyLink').addEventListener('click', async () => {
-  await navigator.clipboard.writeText(location.href);
-  $('copyLink').textContent = 'copied ✓';
-  setTimeout(() => ($('copyLink').textContent = 'copy link'), 1200);
-});
+document.getElementById('intro').onclick = () => logo.rest();
 
-const getInk = () =>
-  getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
-
-// --- boot -----------------------------------------------------------------
-applyTheme();
-applyAspect();
-applyPanel();
-logo.setAttribute('seed', demoState.seed);
-applyRenderer();
-applyOptions();
-applyEffects();
-applyAppearance();
-if (demoState.step > 0) {
-  // reproduce a linked formation without animating through the sequence
-  logo.shuffle(demoState.seed);
-  for (let i = 1; i < demoState.step; i++) logo.shuffle();
-}
-
-// geometry probe for QA: ?debug=1 appends measured px + cell data to the page
-if (params.get('debug')) {
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      const el = logo.shadowRoot.querySelector(
-        logo.dataset.rendererActive === 'webgl' ? 'canvas' : 'svg'
-      );
-      const sr = stage.getBoundingClientRect();
-      const vr = el.getBoundingClientRect();
-      const f = logo.formation;
-      const pre = document.createElement('pre');
-      pre.id = 'debug';
-      const overflowers = [...document.querySelectorAll('*')]
-        .filter((e) => e.getBoundingClientRect().width > innerWidth + 1)
-        .map(
-          (e) =>
-            `${e.tagName.toLowerCase()}${e.id ? '#' + e.id : ''}.${[...e.classList].join('.')}=${Math.round(e.getBoundingClientRect().width)}`
-        )
-        .slice(0, 10);
-      pre.textContent = JSON.stringify({
-        renderer: logo.dataset.rendererActive,
-        innerWidth,
-        overflowers,
-        stage: [sr.x, sr.y, sr.width, sr.height].map((n) => +n.toFixed(1)),
-        view: [vr.x, vr.y, vr.width, vr.height].map((n) => +n.toFixed(1)),
-        seed: logo.seed,
-        dots: f?.dots?.map((d) => d.map((n) => +n.toFixed(3))),
-      });
-      document.body.appendChild(pre);
-    })
-  );
-}
+new ResizeObserver(([e]) => {
+  document.getElementById('size').textContent =
+    `${Math.round(e.contentRect.width)} × ${Math.round(e.contentRect.height)}`;
+}).observe(frame);
 </script>
 </body>
 </html>

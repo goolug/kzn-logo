@@ -50,6 +50,8 @@ export function toSVG(formationOrMark, { ink = '#1E1E1E', size = 640 } = {}) {
 
 const fmt = (n) => (Math.round(n * 10000) / 10000).toString();
 
+let softCounter = 0;
+
 /**
  * Dynamic renderer. Owns the circles + the construction-grid overlay inside
  * one <svg>, and animates between formations at display refresh rate.
@@ -79,12 +81,28 @@ export function createDynamicRenderer(svg, opts = {}) {
   gridG.setAttribute('stroke-opacity', '0.18');
   gridG.setAttribute('display', 'none');
   const dotsG = document.createElementNS(SVG_NS, 'g');
+  dotsG.setAttribute('fill', 'currentColor'); // circles inherit — appearance retints the group
   svg.append(gridG, dotsG);
+
+  const softId = `kzn-soft-${++softCounter}`;
+  let softFe = null;
+
+  function ensureSoftFilter() {
+    if (softFe) return;
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    const filter = document.createElementNS(SVG_NS, 'filter');
+    filter.setAttribute('id', softId);
+    for (const [k, v] of [['x', '-60%'], ['y', '-60%'], ['width', '220%'], ['height', '220%']])
+      filter.setAttribute(k, v);
+    softFe = document.createElementNS(SVG_NS, 'feGaussianBlur');
+    filter.appendChild(softFe);
+    defs.appendChild(filter);
+    svg.prepend(defs);
+  }
 
   function ensureCircles(n) {
     while (state.circles.length < n) {
       const c = document.createElementNS(SVG_NS, 'circle');
-      c.setAttribute('fill', 'currentColor');
       dotsG.appendChild(c);
       state.circles.push(c);
     }
@@ -179,6 +197,19 @@ export function createDynamicRenderer(svg, opts = {}) {
       state.raf = 0;
       state.anims = null;
       dots.forEach(([x, y], i) => put(i, x, y));
+    },
+    /** Dot layer look: { ink, opacity, blend, soft } (soft in cell units). */
+    setAppearance({ ink, opacity, blend, soft } = {}) {
+      dotsG.setAttribute('fill', ink || 'currentColor');
+      dotsG.setAttribute('fill-opacity', opacity ?? 1);
+      dotsG.style.mixBlendMode = blend && blend !== 'normal' ? blend : '';
+      if (soft > 0) {
+        ensureSoftFilter();
+        softFe.setAttribute('stdDeviation', soft / 2);
+        dotsG.setAttribute('filter', `url(#${softId})`);
+      } else {
+        dotsG.removeAttribute('filter');
+      }
     },
     get current() {
       return state.current.map((p) => p.slice());

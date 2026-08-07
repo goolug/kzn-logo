@@ -1805,9 +1805,10 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     }
 
     const e = fx();
+    // calibrated so mid-slider fog speed reads as visible cloud-forming
     const time = state.reduced
       ? 0
-      : ((performance.now() - state.t0) / 1000) * 0.05 * (e.fogSpeed ?? 0.2);
+      : ((performance.now() - state.t0) / 1000) * 0.3 * (e.fogSpeed ?? 0.2);
 
     // with an explicit background the canvas owns the ground (opaque);
     // otherwise the whole chain runs transparent and CSS composites it

@@ -27,6 +27,10 @@ python3 -m http.server 4173     # or any static file server
 - `http://localhost:4173/env.html` — **site test environment**: the 1440×880
   hero (production gradient + noise plate), authored intro formation,
   click-to-disperse, floating panel with the full parameter surface
+- `http://localhost:4173/client.html` — **client presentation page**: the
+  piece fills the real viewport (no frame, no bench chrome), hidable panel
+  where every slider is paired with a typed number, one undo stack
+  (⌘Z works), opens on the client-review recipe
 - `npm test` — 30 rule-invariant tests (node only, no installs)
 - `npm run build:standalone` — emits `dist/` single-file bundles
 
@@ -36,6 +40,7 @@ Both pages mirror every control into the URL — **a URL is a preset**.
 
 - Workbench 🎯 `https://claude.ai/code/artifact/dea05341-b622-4247-bf19-99868c48f1a9`
 - Test env 🧪 `https://claude.ai/code/artifact/6e086a71-1e4c-4f17-ad9a-1576b34ffb66`
+- Client page 🟠 `https://claude.ai/code/artifact/0df23f27-820f-4450-a46e-ea5b2a71114a`
 
 A Claude session republishes to the SAME urls by passing the artifact's
 `url` to the Artifact tool. The publish source is `dist/*-standalone.html`
@@ -58,6 +63,8 @@ src/webgl.js     WebGL2 renderer: SDF scene (metaball smin), treatment
 src/element.js   <kzn-logo> custom element: responsive grid, scale zoom,
                  intro formations, drag, appearance/effects plumbing
 demo.js+index.html   workbench      env.js+env.html   test environment
+client.js+client.html               client presentation page (fullscreen,
+                                    numeric inputs + undo, no bench chrome)
 tools/build-standalone.mjs          naive single-file bundler
 test/            core + motion invariants
 ```

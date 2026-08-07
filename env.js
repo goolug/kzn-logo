@@ -42,7 +42,6 @@ const state = {
   diffuse: num('diffuse', 0),
   difdir: num('difdir', 45),
   diftight: num('diftight', 0.75),
-  grain: num('grain', 0),
   fogspeed: num('fogspeed', 0.2),
   fogscale: num('fogscale', 1),
   fogdensity: num('fogdensity', 1),
@@ -66,7 +65,7 @@ const state = {
   stagger: num('stagger', 45),
   panel: params.get('panel') !== '0',
 };
-const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
+const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse'];
 const ORDERABLE = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse'];
 state.order = state.order.filter((n) => ORDERABLE.includes(n));
 for (const n of ORDERABLE) if (!state.order.includes(n)) state.order.push(n);
@@ -138,7 +137,7 @@ function applyFx() {
     diffuse: state.diffuse,
     difAngle: state.difdir,
     difTight: state.diftight,
-    grain: state.grain,
+    grain: 1, // fixed — the film grain rides the fog composite
     fogSpeed: state.fogspeed,
     fogScale: state.fogscale,
     fogDensity: state.fogdensity,

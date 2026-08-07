@@ -212,7 +212,6 @@
         <div class="row sub"><label for="fogspeed">· speed</label><input type="range" id="fogspeed" min="0" max="1" step="0.01" /><output id="fogspeedOut"></output></div>
         <div class="row sub"><label for="fogscale">· scale</label><input type="range" id="fogscale" min="0.3" max="3" step="0.05" /><output id="fogscaleOut"></output></div>
         <div class="row sub"><label for="fogdensity">· density</label><input type="range" id="fogdensity" min="0.2" max="2.5" step="0.05" /><output id="fogdensityOut"></output></div>
-        <div class="row sub"><label for="grain">· grain</label><input type="range" id="grain" min="0" max="2" step="0.05" /><output id="grainOut"></output></div>
       </div>
       <div class="fxgroup" id="fx-bokeh">
         <div class="row"><button class="up" data-fx="bokeh" title="move earlier in the chain">▲</button><label for="bokeh">bokeh</label><input type="range" id="bokeh" min="0" max="2" step="0.05" /><output id="bokehOut"></output></div>
@@ -1687,9 +1686,10 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     }
 
     const e = fx();
+    // calibrated so mid-slider fog speed reads as visible cloud-forming
     const time = state.reduced
       ? 0
-      : ((performance.now() - state.t0) / 1000) * 0.05 * (e.fogSpeed ?? 0.2);
+      : ((performance.now() - state.t0) / 1000) * 0.3 * (e.fogSpeed ?? 0.2);
 
     // with an explicit background the canvas owns the ground (opaque);
     // otherwise the whole chain runs transparent and CSS composites it
@@ -2607,7 +2607,6 @@ const state = {
   diffuse: num('diffuse', 0),
   difdir: num('difdir', 45),
   diftight: num('diftight', 0.75),
-  grain: num('grain', 0),
   fogspeed: num('fogspeed', 0.2),
   fogscale: num('fogscale', 1),
   fogdensity: num('fogdensity', 1),
@@ -2631,7 +2630,7 @@ const state = {
   stagger: num('stagger', 45),
   panel: params.get('panel') !== '0',
 };
-const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
+const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse'];
 const ORDERABLE = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse'];
 state.order = state.order.filter((n) => ORDERABLE.includes(n));
 for (const n of ORDERABLE) if (!state.order.includes(n)) state.order.push(n);
@@ -2703,7 +2702,7 @@ function applyFx() {
     diffuse: state.diffuse,
     difAngle: state.difdir,
     difTight: state.diftight,
-    grain: state.grain,
+    grain: 1, // fixed — the film grain rides the fog composite
     fogSpeed: state.fogspeed,
     fogScale: state.fogscale,
     fogDensity: state.fogdensity,

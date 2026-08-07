@@ -731,70 +731,20 @@ function orbitKernel(target, prev, clear) {
 }
 
 /**
- * Free drag: the dot follows the pointer continuously — no grid snapping.
- * What survives are the mark's hard rules, not the lattice: dots never
- * overlap (the dragged dot slides around its neighbors at contact), nothing
- * ever covers the crosshair, everything stays inside the canvas, and the
- * kernel still orbits — its edge pinned through the center.
+ * Free drag: every dot — the kernel included — follows the pointer
+ * continuously. No grid, no collision, no center ban: overlapping dots are
+ * welcome (the renderer fuses them, metaball-style). The only constraint is
+ * the canvas itself — dots stay on it.
  */
 function freeDrag(formation, index, target, options = {}) {
   const o = { ...defaults, ...options };
-  const { w, h, dots } = formation;
+  const { w, h } = formation;
   const limX = w / 2 - R - o.edge;
   const limY = h / 2 - R - o.edge;
-  const prev = dots[index].slice();
-  const minD = 2 * R + o.gap;
-  const centerMin = R + 0.02;
-  const clear = (p) => {
-    for (let j = 0; j < dots.length; j++) {
-      if (j === index) continue;
-      if (dist(p, dots[j]) < minD - 1e-9) return false;
-    }
-    return true;
-  };
-
-  if (index === 0) return orbitKernel(target, prev, clear);
-
-  let p = [
+  return [
     Math.max(-limX, Math.min(limX, target[0])),
     Math.max(-limY, Math.min(limY, target[1])),
   ];
-  // relax: push out of neighbors and off the crosshair until settled —
-  // this is what makes the dot glide around obstacles instead of sinking in
-  for (let it = 0; it < 6; it++) {
-    let moved = false;
-    for (let j = 0; j < dots.length; j++) {
-      if (j === index) continue;
-      let dx = p[0] - dots[j][0];
-      let dy = p[1] - dots[j][1];
-      let d = Math.hypot(dx, dy);
-      if (d < minD - 1e-9) {
-        if (d < 1e-6) {
-          // dead center: surface on the side the dot came from
-          dx = prev[0] - dots[j][0];
-          dy = prev[1] - dots[j][1];
-          d = Math.hypot(dx, dy) || 1;
-        }
-        p = [dots[j][0] + (dx / d) * minD, dots[j][1] + (dy / d) * minD];
-        moved = true;
-      }
-    }
-    const cd = Math.hypot(p[0], p[1]);
-    if (cd < centerMin - 1e-9) {
-      p = cd < 1e-6 ? [centerMin, 0] : [(p[0] / cd) * centerMin, (p[1] / cd) * centerMin];
-      moved = true;
-    }
-    const cx = Math.max(-limX, Math.min(limX, p[0]));
-    const cy = Math.max(-limY, Math.min(limY, p[1]));
-    if (cx !== p[0] || cy !== p[1]) {
-      p = [cx, cy];
-      moved = true;
-    }
-    if (!moved) break;
-  }
-  // genuinely squeezed (corner + neighbors): refuse rather than overlap
-  if (!clear(p) || Math.hypot(p[0], p[1]) < centerMin - 1e-6) return prev;
-  return p;
 }
 
 /**
@@ -1270,7 +1220,12 @@ uniform float uBgMid;       // position of the middle stop, 0..1 from the top
 uniform float uInkAlpha;    // dot layer opacity (Figma comp: 0.1)
 uniform int uBlend;         // 0 normal · 1 difference · 2 multiply · 3 screen
 uniform float uSoft;        // edge feather in cells (≈ the comp's layer blur)
+uniform float uFuse;        // metaball smoothing radius in cells — 0 = hard union
 out vec4 outColor;
+float smin(float a, float b, float k) { // polynomial smooth minimum
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
 vec3 bgAt(float t) { // t: 0 at the top of the canvas
   if (uBgMode < 0.5) return uBg.rgb;
   return t < uBgMid
@@ -1283,12 +1238,13 @@ void main() {
   float pxPerCell = uRes.x / (2.0 * uHalf.x);
   float aa = 1.0 / pxPerCell;
 
-  float cov = 0.0;
+  float d = 1e5;
   for (int i = 0; i < 8; i++) {
     if (i >= uCount) break;
-    float d = length(p - uDots[i].xy) - uDots[i].z;
-    cov = max(cov, 1.0 - smoothstep(-aa - uSoft, aa + uSoft, d));
+    float di = length(p - uDots[i].xy) - uDots[i].z;
+    d = uFuse > 1e-4 ? smin(d, di, uFuse) : min(d, di);
   }
+  float cov = 1.0 - smoothstep(-aa - uSoft, aa + uSoft, d);
 
   float gridA = 0.0;
   if (uGrid > 0.5) {
@@ -1375,6 +1331,7 @@ vec3 bgAt(float t) {
     ? mix(uBgStops[0], uBgStops[1], t / max(uBgMid, 1e-4))
     : mix(uBgStops[1], uBgStops[2], (t - uBgMid) / max(1.0 - uBgMid, 1e-4));
 }
+uniform float uOverlay; // 1 = transparent dot-layer pipeline (CSS owns the ground)
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   float ar = uRes.x / uRes.y;
@@ -1384,8 +1341,15 @@ void main() {
   float presence = smoothstep(0.0, 0.12, halo);
   float grain = hash21(uv * uRes.xy / 100.0 + fract(uTime));
   float light = aces(vec3(halo * 0.8)).r + grain * 0.05 * uGrain;
-  vec3 ground = bgAt(1.0 - uv.y);
-  outColor = vec4(base.rgb + (uInk.rgb - ground) * light * mask * presence, 1.0);
+  float L = light * mask * presence;
+  if (uOverlay > 0.5) {
+    // premultiplied: the fog adds the ink's own light to the dot layer;
+    // compositing against the page ground happens in CSS
+    outColor = vec4(base.rgb + uInk.rgb * L, min(1.0, base.a + L));
+  } else {
+    vec3 ground = bgAt(1.0 - uv.y);
+    outColor = vec4(base.rgb + (uInk.rgb - ground) * L, 1.0);
+  }
 }`;
 
 // bokeh: golden-angle disc blur, dithered by gradient noise
@@ -1450,7 +1414,10 @@ uniform vec2 uRes;
 out vec4 outColor;
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
-  outColor = vec4(texture(uTex, uv).rgb + texture(uAddT, uv).rgb, 1.0);
+  vec4 b = texture(uTex, uv);
+  vec3 add = texture(uAddT, uv).rgb;
+  float aAdd = dot(add, vec3(0.299, 0.587, 0.114));
+  outColor = vec4(b.rgb + add, min(1.0, b.a + aAdd));
 }`;
 
 // zoom blur: radial streaks toward the center — gated OFF near the center
@@ -1528,8 +1495,8 @@ void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   vec4 c = texture(uTex, uv);
   float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-  c.rgb = mix(c.rgb, mix(uTintInk, uTintBg, lum), uTintAmt);
-  outColor = vec4(c.rgb, 1.0);
+  c.rgb = mix(c.rgb, mix(uTintInk, uTintBg, lum) * max(c.a, 0.0001), uTintAmt);
+  outColor = c; // alpha passes through — transparent overlays stay transparent
 }`;
 
 /** '#rrggbb' | 'rgb(a)' string → [r,g,b,a] in 0..1 */
@@ -1630,7 +1597,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     ink: [0.12, 0.12, 0.12, 1],
     bg: [1, 0.984, 0.973, 1],
     bgGrad: null, // { mid, stops: [rgb, rgb, rgb] } when the ground is a gradient
-    appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0 },
+    appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0, fuse: 0 },
     effects: { ...ZERO_STACK, difAngle: 45, difTight: 0.75 },
     pxW: 0,
     pxH: 0,
@@ -1715,16 +1682,19 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       gl.uniform1f(u.uInkAlpha, ap.opacity ?? 1);
       gl.uniform1i(u.uBlend, BLEND_IDS[ap.blend] ?? 0);
       gl.uniform1f(u.uSoft, ap.soft ?? 0);
+      gl.uniform1f(u.uFuse, ap.fuse ?? 0);
       bgUniforms(u);
     });
   }
 
-  // when the stack is off the canvas is transparent — blending against the
-  // page happens in CSS; when the stack is on it happens in-shader
+  // the canvas is a transparent dot layer unless an explicit background was
+  // handed to it — blending against the page happens in CSS whenever the
+  // canvas doesn't own the ground
   function syncCssBlend() {
     const ap = state.appearance;
+    const ownsGround = stackActive() && !!state.effects.background;
     canvas.style.mixBlendMode =
-      !stackActive() && ap.blend && ap.blend !== 'normal' ? ap.blend : '';
+      !ownsGround && ap.blend && ap.blend !== 'normal' ? ap.blend : '';
   }
 
   function draw() {
@@ -1742,7 +1712,10 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     const time = state.reduced ? 0 : ((performance.now() - state.t0) / 1000) * 0.2 * 0.05;
     // "fog time" advances at layer speed 0.2 with the scene's 0.05 multiplier
 
-    drawScene('fullA', 1);
+    // with an explicit background the canvas owns the ground (opaque);
+    // otherwise the whole chain runs transparent and CSS composites it
+    const ownsGround = !!e.background;
+    drawScene('fullA', ownsGround ? 1 : 0);
     let cur = 'fullA'; // name of the current full-res composite
     let spare = 'fullB';
 
@@ -1773,6 +1746,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
         gl.uniform1f(u.uTime, time);
         gl.uniform1f(u.uFog, e.fog);
         gl.uniform1f(u.uGrain, e.grain);
+        gl.uniform1f(u.uOverlay, ownsGround ? 0 : 1);
         gl.uniform4fv(u.uInk, state.ink);
         gl.uniform4fv(u.uBg, state.bg);
         bgUniforms(u);
@@ -2288,11 +2262,13 @@ class KznLogo extends HTMLElement {
     const f = this.#dyn.formation;
     const cur = this.#dyn.current;
     const cell = this.#cellFromEvent(e);
-    // free drag by default; drag="grid" restores lattice-constrained moves.
-    // The kernel always takes the raw pointer — its orbit follows direction.
+    // free drag by default; drag="grid" restores lattice-constrained moves
+    // (where the kernel orbits and takes the raw pointer as its direction)
     const grid = this.getAttribute('drag') === 'grid';
     const target =
-      s.index === 0 ? cell : [cell[0] + s.off[0], cell[1] + s.off[1]];
+      grid && s.index === 0
+        ? cell
+        : [cell[0] + s.off[0], cell[1] + s.off[1]];
     cur[s.index] = (grid ? constrainDrag : freeDrag)(
       { w: f.w, h: f.h, dots: cur },
       s.index,

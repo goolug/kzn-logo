@@ -13,15 +13,9 @@ const logo = $('logo');
 const frame = $('frame');
 const num = (k, d) => +(params.get(k) ?? d);
 
-// the page gradient, pre-composited (the 50%-opacity stops over #FFFBF8):
-//   #FFFBF8 → #F2E7E8 @ 48.44% → #D3D0DE
-const GROUND = {
-  gradient: [
-    [0, '#FFFBF8'],
-    [0.4844, '#F2E7E8'],
-    [1, '#D3D0DE'],
-  ],
-};
+// the ground stays in CSS (frame gradient + noise plate) — the canvas is a
+// transparent dot layer, effects included, composited by the browser.
+// (Handing logo.effects a `background` would flip it to canvas-owned.)
 
 // the hero opening: the default mark formation fitted so its bounding box
 // exactly fills the inset box — 138px sides, 53px top, 130px bottom (vital,
@@ -40,6 +34,7 @@ const state = {
   alpha: num('alpha', 1),
   blend: params.get('blend') || 'normal',
   soft: num('soft', 0),
+  fuse: num('fuse', 0.3), // metaball fusion radius, cells
   fog: num('fog', 0),
   bokeh: num('bokeh', 0),
   rays: num('rays', 0),
@@ -55,7 +50,8 @@ const state = {
 const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
 const DEFAULTS = {
   seed: 'kzn', scale: 1.31, ink: '1E1E1E', alpha: 1, blend: 'normal',
-  soft: 0, difdir: 45, diftight: 0.75, duration: 750, stagger: 45, panel: true,
+  soft: 0, fuse: 0.3, difdir: 45, diftight: 0.75, duration: 750, stagger: 45,
+  panel: true,
 };
 
 function syncURL() {
@@ -89,6 +85,7 @@ function applyDots() {
     opacity: state.alpha,
     blend: state.blend,
     soft: state.soft,
+    fuse: state.fuse,
   };
   $('inkc').value = '#' + state.ink;
   $('alpha').value = state.alpha;
@@ -96,6 +93,8 @@ function applyDots() {
   $('blend').value = state.blend;
   $('soft').value = state.soft;
   $('softOut').textContent = state.soft.toFixed(2);
+  $('fuse').value = state.fuse;
+  $('fuseOut').textContent = state.fuse.toFixed(2);
 }
 
 function applyFx() {
@@ -108,7 +107,6 @@ function applyFx() {
     difAngle: state.difdir,
     difTight: state.diftight,
     grain: state.grain,
-    background: GROUND,
   };
   for (const k of FX) {
     $(k).value = state[k];
@@ -143,6 +141,7 @@ const slider = (id, key, apply) => {
 slider('scaleR', 'scale', applyFormation);
 slider('alpha', 'alpha', applyDots);
 slider('soft', 'soft', applyDots);
+slider('fuse', 'fuse', applyDots);
 slider('duration', 'duration', applyFormation);
 slider('stagger', 'stagger', applyFormation);
 for (const k of FX) slider(k, k, applyFx);

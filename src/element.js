@@ -283,11 +283,13 @@ class KznLogo extends HTMLElement {
     const f = this.#dyn.formation;
     const cur = this.#dyn.current;
     const cell = this.#cellFromEvent(e);
-    // free drag by default; drag="grid" restores lattice-constrained moves.
-    // The kernel always takes the raw pointer — its orbit follows direction.
+    // free drag by default; drag="grid" restores lattice-constrained moves
+    // (where the kernel orbits and takes the raw pointer as its direction)
     const grid = this.getAttribute('drag') === 'grid';
     const target =
-      s.index === 0 ? cell : [cell[0] + s.off[0], cell[1] + s.off[1]];
+      grid && s.index === 0
+        ? cell
+        : [cell[0] + s.off[0], cell[1] + s.off[1]];
     cur[s.index] = (grid ? constrainDrag : freeDrag)(
       { w: f.w, h: f.h, dots: cur },
       s.index,

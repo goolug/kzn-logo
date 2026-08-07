@@ -337,70 +337,20 @@ function orbitKernel(target, prev, clear) {
 }
 
 /**
- * Free drag: the dot follows the pointer continuously — no grid snapping.
- * What survives are the mark's hard rules, not the lattice: dots never
- * overlap (the dragged dot slides around its neighbors at contact), nothing
- * ever covers the crosshair, everything stays inside the canvas, and the
- * kernel still orbits — its edge pinned through the center.
+ * Free drag: every dot — the kernel included — follows the pointer
+ * continuously. No grid, no collision, no center ban: overlapping dots are
+ * welcome (the renderer fuses them, metaball-style). The only constraint is
+ * the canvas itself — dots stay on it.
  */
 export function freeDrag(formation, index, target, options = {}) {
   const o = { ...defaults, ...options };
-  const { w, h, dots } = formation;
+  const { w, h } = formation;
   const limX = w / 2 - R - o.edge;
   const limY = h / 2 - R - o.edge;
-  const prev = dots[index].slice();
-  const minD = 2 * R + o.gap;
-  const centerMin = R + 0.02;
-  const clear = (p) => {
-    for (let j = 0; j < dots.length; j++) {
-      if (j === index) continue;
-      if (dist(p, dots[j]) < minD - 1e-9) return false;
-    }
-    return true;
-  };
-
-  if (index === 0) return orbitKernel(target, prev, clear);
-
-  let p = [
+  return [
     Math.max(-limX, Math.min(limX, target[0])),
     Math.max(-limY, Math.min(limY, target[1])),
   ];
-  // relax: push out of neighbors and off the crosshair until settled —
-  // this is what makes the dot glide around obstacles instead of sinking in
-  for (let it = 0; it < 6; it++) {
-    let moved = false;
-    for (let j = 0; j < dots.length; j++) {
-      if (j === index) continue;
-      let dx = p[0] - dots[j][0];
-      let dy = p[1] - dots[j][1];
-      let d = Math.hypot(dx, dy);
-      if (d < minD - 1e-9) {
-        if (d < 1e-6) {
-          // dead center: surface on the side the dot came from
-          dx = prev[0] - dots[j][0];
-          dy = prev[1] - dots[j][1];
-          d = Math.hypot(dx, dy) || 1;
-        }
-        p = [dots[j][0] + (dx / d) * minD, dots[j][1] + (dy / d) * minD];
-        moved = true;
-      }
-    }
-    const cd = Math.hypot(p[0], p[1]);
-    if (cd < centerMin - 1e-9) {
-      p = cd < 1e-6 ? [centerMin, 0] : [(p[0] / cd) * centerMin, (p[1] / cd) * centerMin];
-      moved = true;
-    }
-    const cx = Math.max(-limX, Math.min(limX, p[0]));
-    const cy = Math.max(-limY, Math.min(limY, p[1]));
-    if (cx !== p[0] || cy !== p[1]) {
-      p = [cx, cy];
-      moved = true;
-    }
-    if (!moved) break;
-  }
-  // genuinely squeezed (corner + neighbors): refuse rather than overlap
-  if (!clear(p) || Math.hypot(p[0], p[1]) < centerMin - 1e-6) return prev;
-  return p;
 }
 
 /**

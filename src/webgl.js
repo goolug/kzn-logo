@@ -93,7 +93,12 @@ uniform float uBgMid;       // position of the middle stop, 0..1 from the top
 uniform float uInkAlpha;    // dot layer opacity (Figma comp: 0.1)
 uniform int uBlend;         // 0 normal · 1 difference · 2 multiply · 3 screen
 uniform float uSoft;        // edge feather in cells (≈ the comp's layer blur)
+uniform float uFuse;        // metaball smoothing radius in cells — 0 = hard union
 out vec4 outColor;
+float smin(float a, float b, float k) { // polynomial smooth minimum
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
 vec3 bgAt(float t) { // t: 0 at the top of the canvas
   if (uBgMode < 0.5) return uBg.rgb;
   return t < uBgMid
@@ -106,12 +111,13 @@ void main() {
   float pxPerCell = uRes.x / (2.0 * uHalf.x);
   float aa = 1.0 / pxPerCell;
 
-  float cov = 0.0;
+  float d = 1e5;
   for (int i = 0; i < 8; i++) {
     if (i >= uCount) break;
-    float d = length(p - uDots[i].xy) - uDots[i].z;
-    cov = max(cov, 1.0 - smoothstep(-aa - uSoft, aa + uSoft, d));
+    float di = length(p - uDots[i].xy) - uDots[i].z;
+    d = uFuse > 1e-4 ? smin(d, di, uFuse) : min(d, di);
   }
+  float cov = 1.0 - smoothstep(-aa - uSoft, aa + uSoft, d);
 
   float gridA = 0.0;
   if (uGrid > 0.5) {
@@ -198,6 +204,7 @@ vec3 bgAt(float t) {
     ? mix(uBgStops[0], uBgStops[1], t / max(uBgMid, 1e-4))
     : mix(uBgStops[1], uBgStops[2], (t - uBgMid) / max(1.0 - uBgMid, 1e-4));
 }
+uniform float uOverlay; // 1 = transparent dot-layer pipeline (CSS owns the ground)
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   float ar = uRes.x / uRes.y;
@@ -207,8 +214,15 @@ void main() {
   float presence = smoothstep(0.0, 0.12, halo);
   float grain = hash21(uv * uRes.xy / 100.0 + fract(uTime));
   float light = aces(vec3(halo * 0.8)).r + grain * 0.05 * uGrain;
-  vec3 ground = bgAt(1.0 - uv.y);
-  outColor = vec4(base.rgb + (uInk.rgb - ground) * light * mask * presence, 1.0);
+  float L = light * mask * presence;
+  if (uOverlay > 0.5) {
+    // premultiplied: the fog adds the ink's own light to the dot layer;
+    // compositing against the page ground happens in CSS
+    outColor = vec4(base.rgb + uInk.rgb * L, min(1.0, base.a + L));
+  } else {
+    vec3 ground = bgAt(1.0 - uv.y);
+    outColor = vec4(base.rgb + (uInk.rgb - ground) * L, 1.0);
+  }
 }`;
 
 // bokeh: golden-angle disc blur, dithered by gradient noise
@@ -273,7 +287,10 @@ uniform vec2 uRes;
 out vec4 outColor;
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
-  outColor = vec4(texture(uTex, uv).rgb + texture(uAddT, uv).rgb, 1.0);
+  vec4 b = texture(uTex, uv);
+  vec3 add = texture(uAddT, uv).rgb;
+  float aAdd = dot(add, vec3(0.299, 0.587, 0.114));
+  outColor = vec4(b.rgb + add, min(1.0, b.a + aAdd));
 }`;
 
 // zoom blur: radial streaks toward the center — gated OFF near the center
@@ -351,8 +368,8 @@ void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   vec4 c = texture(uTex, uv);
   float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-  c.rgb = mix(c.rgb, mix(uTintInk, uTintBg, lum), uTintAmt);
-  outColor = vec4(c.rgb, 1.0);
+  c.rgb = mix(c.rgb, mix(uTintInk, uTintBg, lum) * max(c.a, 0.0001), uTintAmt);
+  outColor = c; // alpha passes through — transparent overlays stay transparent
 }`;
 
 /** '#rrggbb' | 'rgb(a)' string → [r,g,b,a] in 0..1 */
@@ -453,7 +470,7 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     ink: [0.12, 0.12, 0.12, 1],
     bg: [1, 0.984, 0.973, 1],
     bgGrad: null, // { mid, stops: [rgb, rgb, rgb] } when the ground is a gradient
-    appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0 },
+    appearance: { ink: null, opacity: 1, blend: 'normal', soft: 0, fuse: 0 },
     effects: { ...ZERO_STACK, difAngle: 45, difTight: 0.75 },
     pxW: 0,
     pxH: 0,
@@ -538,16 +555,19 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
       gl.uniform1f(u.uInkAlpha, ap.opacity ?? 1);
       gl.uniform1i(u.uBlend, BLEND_IDS[ap.blend] ?? 0);
       gl.uniform1f(u.uSoft, ap.soft ?? 0);
+      gl.uniform1f(u.uFuse, ap.fuse ?? 0);
       bgUniforms(u);
     });
   }
 
-  // when the stack is off the canvas is transparent — blending against the
-  // page happens in CSS; when the stack is on it happens in-shader
+  // the canvas is a transparent dot layer unless an explicit background was
+  // handed to it — blending against the page happens in CSS whenever the
+  // canvas doesn't own the ground
   function syncCssBlend() {
     const ap = state.appearance;
+    const ownsGround = stackActive() && !!state.effects.background;
     canvas.style.mixBlendMode =
-      !stackActive() && ap.blend && ap.blend !== 'normal' ? ap.blend : '';
+      !ownsGround && ap.blend && ap.blend !== 'normal' ? ap.blend : '';
   }
 
   function draw() {
@@ -565,7 +585,10 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     const time = state.reduced ? 0 : ((performance.now() - state.t0) / 1000) * 0.2 * 0.05;
     // "fog time" advances at layer speed 0.2 with the scene's 0.05 multiplier
 
-    drawScene('fullA', 1);
+    // with an explicit background the canvas owns the ground (opaque);
+    // otherwise the whole chain runs transparent and CSS composites it
+    const ownsGround = !!e.background;
+    drawScene('fullA', ownsGround ? 1 : 0);
     let cur = 'fullA'; // name of the current full-res composite
     let spare = 'fullB';
 
@@ -596,6 +619,7 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
         gl.uniform1f(u.uTime, time);
         gl.uniform1f(u.uFog, e.fog);
         gl.uniform1f(u.uGrain, e.grain);
+        gl.uniform1f(u.uOverlay, ownsGround ? 0 : 1);
         gl.uniform4fv(u.uInk, state.ink);
         gl.uniform4fv(u.uBg, state.bg);
         bgUniforms(u);

@@ -7,12 +7,11 @@ Everything lives in git; nothing depends on any session's container.
 **Home: `goolug/kzn-logo`, branch `main`.** Start new Claude sessions from
 this repo directly — that gives the session native git access to it.
 
-Provenance note: `main` was imported via the GitHub API (the creating
-session's git proxy could read but not push the just-created repo), so it
-begins as an import commit. The **full 13-commit development history** is
-preserved on branch `claude/kaizen-interactive-logo-jnys6o` of `goolug/kzn`
-— identical tree, real archaeology. `kzn`'s own `main` is unrelated and
-untouched.
+`main` carries the full, real development history (pushed directly once
+the Claude GitHub App was granted access to the repo, 2026-08-07). Branch
+`claude/kaizen-interactive-logo-jnys6o` of `goolug/kzn` is a synced mirror
+kept as backup from the founding session; `kzn`'s own `main` is unrelated
+and untouched.
 
 ## Run it
 
@@ -122,9 +121,16 @@ is the brand recipe (one button in the env panel).
   defaults when the user lands on a look.
 - **Repo migration** — see "Where the code is".
 
+## Fonts
+
+Lineto Replica trial files (Replica_Regular.ttf / Replica_Bold.ttf /
+ReplicaMonoStd.otf) are used by `white.html` but are NOT committed — see
+`fonts/README.md`. Deploys need the files dropped into `fonts/`; the
+published artifact pages get them inlined as data URIs at publish time.
+Kaizen is purchasing the full web-licensed set — swap in the woff2s when
+they land.
+
 ## Kickoff prompt for a fresh Claude session
 
-> Start from goolug/kzn. Check out branch
-> `claude/kaizen-interactive-logo-jnys6o` and read `HANDOFF.md` at its
-> root — it explains everything. [If `goolug/kzn-logo` now exists:
-> migrate the project there first, per the handoff.] Then: ‹task›.
+> Start from goolug/kzn-logo (branch `main`) and read `HANDOFF.md` at its
+> root — it explains everything. Then: ‹task›.

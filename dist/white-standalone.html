@@ -20,25 +20,27 @@
   svg.noise { pointer-events: none; }
 
   /* — the page (Figma 216-3322): Replica type under the dots layer —
-     licensed fonts load from the machine or ./fonts/; metrics-true
-     grotesque/mono fallbacks otherwise */
+     trial files from ./fonts/ (swapped for the licensed webfont set on
+     purchase); an installed Replica LL wins via local() when present */
   @font-face {
-    font-family: 'Replica LL';
-    src: local('Replica LL'), local('ReplicaLL-Regular'),
-      url('./fonts/ReplicaLL-Regular.woff2') format('woff2');
+    font-family: 'Replica';
+    src: local('Replica LL'), url('./fonts/Replica_Regular.ttf') format('truetype');
     font-weight: 400; font-style: normal; font-display: swap;
   }
   @font-face {
-    font-family: 'Replica Mono LL';
-    src: local('Replica Mono LL'), local('ReplicaMonoLL-Regular'),
-      url('./fonts/ReplicaMonoLL-Regular.woff2') format('woff2');
+    font-family: 'Replica';
+    src: local('Replica LL Bold'), url('./fonts/Replica_Bold.ttf') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Replica Mono';
+    src: local('Replica Mono LL'), url('./fonts/ReplicaMonoStd.otf') format('opentype');
     font-weight: 400; font-style: normal; font-display: swap;
   }
   .chrome {
     position: fixed;
     top: 20px;
-    /* Replica across the board (the comp's Mono nav was a mistake) */
-    font: 14px/1 'Replica LL', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font: 14px/1 'Replica Mono', 'Replica Mono LL', ui-monospace, 'SF Mono', Menlo, monospace;
     letter-spacing: 0;
     color: #19191e;
     filter: blur(0.75px); /* the comp's 1.5 layer blur */
@@ -54,15 +56,14 @@
     bottom: 24px;
     margin: 0;
     width: calc(100vw - 40px); /* flexes to the page, 20px side margins */
-    font: 56px/1 'Replica LL', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font: 56px/1 'Replica', 'Replica LL', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     letter-spacing: 0;
     color: #8c8c8f;
     filter: blur(0.5px); /* the comp's 1 layer blur */
   }
   #manifesto .lead { color: #fea021; }
-  /* the copy reads over the dots layer; pointer-events pass through so
-     the piece stays clickable/draggable everywhere */
-  .chrome, #manifesto { z-index: 3; pointer-events: none; }
+  /* dots layer over the copy (comp stacking) — blend/opacity carry the
+     layering; type stays selectable-free under the interactive canvas */
 
   /* the panel's only affordance: a quiet mono link in the corner */
   #toggle {

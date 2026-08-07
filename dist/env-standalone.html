@@ -25,8 +25,8 @@
     resize: both;
     flex: none;
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
-    /* the production ground — the WebGL canvas paints this same gradient
-       itself when the treatment is on; this CSS layer backs the flat/svg path */
+    /* the production ground — the CSS layer beneath the transparent canvas;
+       when the treatment stack is on, the canvas paints this same gradient */
     background:
       linear-gradient(180deg, rgba(255, 251, 248, 0.5) 0%, rgba(228, 210, 216, 0.5) 48.44%, rgba(166, 165, 196, 0.5) 100%),
       #fffbf8;
@@ -53,9 +53,10 @@
     gap: 10px;
     align-items: center;
     opacity: 0.9;
+    z-index: 3;
   }
   .hud #size { opacity: 0.7; }
-  .hud button, .hud a {
+  button, select, input[type='text'] {
     font: inherit;
     color: inherit;
     background: rgba(255, 255, 255, 0.08);
@@ -63,16 +64,63 @@
     border-radius: 3px;
     padding: 5px 10px;
     cursor: pointer;
-    text-decoration: none;
   }
-  .hud button:hover, .hud a:hover { border-color: #fffbf8; }
+  button:hover, select:hover { border-color: #fffbf8; }
+  button.primary { background: #fffbf8; color: #1e1e1e; border-color: #fffbf8; }
+
+  /* --- floating control panel --- */
+  #panel {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: 264px;
+    max-height: calc(100vh - 72px);
+    overflow-y: auto;
+    background: rgba(24, 23, 26, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 6px;
+    padding: 14px 14px 6px;
+    z-index: 4;
+    backdrop-filter: blur(6px);
+  }
+  body.nopanel #panel { display: none; }
+  #panel details { border-top: 1px solid rgba(255, 255, 255, 0.14); padding: 10px 0; }
+  #panel details:first-of-type { border-top: none; padding-top: 0; }
+  #panel summary {
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-size: 10px;
+    opacity: 0.75;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    margin-bottom: 8px;
+  }
+  #panel summary::-webkit-details-marker { display: none; }
+  #panel summary::before { content: '▾ '; }
+  #panel details:not([open]) summary::before { content: '▸ '; }
+  #panel details:not([open]) summary { margin-bottom: 0; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; min-width: 0; }
+  .row label { min-width: 62px; opacity: 0.7; }
+  .row output { min-width: 44px; text-align: right; opacity: 0.7; }
+  .row select { flex: 1 1 0; min-width: 0; }
+  input[type='range'] { accent-color: #fffbf8; flex: 1 1 0; min-width: 0; margin: 0; }
+  input[type='color'] {
+    inline-size: 40px;
+    block-size: 26px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 3px;
+    background: none;
+    padding: 2px;
+  }
+  input[type='text'] { width: 90px; }
 </style>
 </head>
 <body>
 <div id="frame">
-  <kzn-logo id="logo" mode="dynamic" renderer="webgl" interactive drag seed="kzn"></kzn-logo>
-  <!-- the production noise plate: same turbulence, same seed — only the
-       background rects are removed from the merge so just the speckle draws -->
+  <!-- the production noise plate: part of the ground, beneath the dots —
+       same turbulence, same seed; only the background rects are removed
+       from the merge so just the speckle draws -->
   <svg class="noise" viewBox="0 0 1440 880" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
     <g filter="url(#kzn_noise)"><rect width="1440" height="880" fill="#fff"/></g>
     <defs>
@@ -89,12 +137,78 @@
       </filter>
     </defs>
   </svg>
+  <kzn-logo id="logo" mode="dynamic" renderer="webgl" interactive drag seed="kzn"></kzn-logo>
 </div>
+
+<aside id="panel">
+  <details open>
+    <summary>Formation</summary>
+    <div class="row">
+      <button id="shuffleBtn" class="primary">shuffle ↻</button>
+      <button id="introBtn">intro</button>
+    </div>
+    <div class="row">
+      <label for="seedIn">seed</label>
+      <input type="text" id="seedIn" />
+    </div>
+    <div class="row">
+      <label for="scaleR">scale</label>
+      <input type="range" id="scaleR" min="0.5" max="4" step="0.01" />
+      <output id="scaleOut"></output>
+    </div>
+    <div class="row"><button id="scaleReset">scale 1.31 (intro size)</button></div>
+  </details>
+  <details open>
+    <summary>Dots</summary>
+    <div class="row">
+      <label for="inkc">ink</label>
+      <input type="color" id="inkc" />
+    </div>
+    <div class="row">
+      <label for="alpha">opacity</label>
+      <input type="range" id="alpha" min="0.02" max="1" step="0.01" />
+      <output id="alphaOut"></output>
+    </div>
+    <div class="row">
+      <label for="blend">blend</label>
+      <select id="blend">
+        <option value="normal">normal</option>
+        <option value="difference">difference</option>
+        <option value="multiply">multiply</option>
+        <option value="screen">screen</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="soft">soft edge</label>
+      <input type="range" id="soft" min="0" max="1" step="0.01" />
+      <output id="softOut"></output>
+    </div>
+    <div class="row"><button id="signalBtn">signal recipe: #FEA021 · 10% · difference</button></div>
+  </details>
+  <details>
+    <summary>Treatment</summary>
+    <div class="row">
+      <button id="stackOn">kaizen stack</button>
+      <button id="stackOff">off</button>
+    </div>
+    <div class="row"><label for="fog">fog</label><input type="range" id="fog" min="0" max="2" step="0.05" /><output id="fogOut"></output></div>
+    <div class="row"><label for="bokeh">bokeh</label><input type="range" id="bokeh" min="0" max="2" step="0.05" /><output id="bokehOut"></output></div>
+    <div class="row"><label for="rays">god rays</label><input type="range" id="rays" min="0" max="2" step="0.05" /><output id="raysOut"></output></div>
+    <div class="row"><label for="zoom">zoom blur</label><input type="range" id="zoom" min="0" max="2" step="0.05" /><output id="zoomOut"></output></div>
+    <div class="row"><label for="diffuse">diffuse</label><input type="range" id="diffuse" min="0" max="2" step="0.05" /><output id="diffuseOut"></output></div>
+    <div class="row"><label for="grain">grain</label><input type="range" id="grain" min="0" max="2" step="0.05" /><output id="grainOut"></output></div>
+  </details>
+  <details>
+    <summary>Motion</summary>
+    <div class="row"><label for="duration">duration</label><input type="range" id="duration" min="150" max="1600" step="10" /><output id="durOut"></output></div>
+    <div class="row"><label for="stagger">stagger</label><input type="range" id="stagger" min="0" max="140" step="5" /><output id="stagOut"></output></div>
+  </details>
+</aside>
+
 <div class="hud">
   <span id="size">1440 × 880</span>
-  <button id="intro">intro</button>
+  <button id="panelToggle">controls ◧</button>
   <button id="reset">reset 1440×880</button>
-  <a href="./index.html">workbench →</a>
 </div>
 <script type="module">
 // ---- src/core.js ----
@@ -1732,7 +1846,8 @@ class KznLogo extends HTMLElement {
   #engineOpts = {};
   #effectsOpts = null;
   #appearanceOpts = null;
-  #intro = null; // authored opening formation: { r, dots: [[fx, fy]…] } in viewport fractions
+  #intro = null; // authored opening formation — see the `intro` setter
+  #px = null; //   last measured host size in CSS px
   #scale = 1; // grid zoom: 1 = four cells on the short side (the default web size)
   #resizeTimer = 0;
 
@@ -1864,10 +1979,14 @@ class KznLogo extends HTMLElement {
   }
 
   /**
-   * Authored opening formation, in viewport fractions (kernel first):
-   * { r: fractionOfHeight, dots: [[fx, fy], …] }. Shown at step 0 instead of
-   * the ideal mark; every shuffle leaves it for engine-generated
-   * constellations solved for the live window — independent of it.
+   * Authored opening formation (kernel first), shown at step 0 instead of
+   * the ideal mark. Two anchorings:
+   *  · { r, dots } — viewport fractions (r of viewport height)
+   *  · { insets: [top, right, bottom, left] px, r, dots } — dots are
+   *    fractions of the inset box, r a fraction of the box height; the px
+   *    insets stay FIXED under resize, like real page padding
+   * Every shuffle leaves it for engine-generated constellations solved for
+   * the live window — independent of the authored opening.
    */
   set intro(v) {
     this.#intro = v;
@@ -2057,6 +2176,7 @@ class KznLogo extends HTMLElement {
       const r = entries[entries.length - 1].contentRect;
       if (r.width < 1 || r.height < 1) return;
       this.#dyn?.resizePx?.(r.width, r.height, window.devicePixelRatio || 1);
+      this.#px = { w: r.width, h: r.height };
       const prev = this.#dims;
       this.#dims = this.#computeDims(r.width / r.height);
       const d = this.#dims;
@@ -2112,15 +2232,35 @@ class KznLogo extends HTMLElement {
     const { w, h, vw, vh } = this.#dims;
     let f;
     if (this.#step === 0 && this.#intro) {
-      // the authored composition scales with the viewport, like the comp
-      f = {
-        w,
-        h,
-        r: this.#intro.r * vh,
-        seed: 'intro',
-        dots: this.#intro.dots.map(([fx, fy]) => [(fx - 0.5) * vw, (fy - 0.5) * vh]),
-        lines: null,
-      };
+      const it = this.#intro;
+      if (it.insets && this.#px) {
+        // fixed px insets, proportional inside the box (the comp's anchoring)
+        const [t, ri, b, l] = it.insets;
+        const { w: pxW, h: pxH } = this.#px;
+        const bw = Math.max(1, pxW - l - ri);
+        const bh = Math.max(1, pxH - t - b);
+        f = {
+          w,
+          h,
+          r: (it.r * bh) / (pxH / vh),
+          seed: 'intro',
+          dots: it.dots.map(([bx, by]) => [
+            ((l + bx * bw) / pxW - 0.5) * vw,
+            ((t + by * bh) / pxH - 0.5) * vh,
+          ]),
+          lines: null,
+        };
+      } else {
+        // viewport-proportional anchoring
+        f = {
+          w,
+          h,
+          r: it.r * vh,
+          seed: 'intro',
+          dots: it.dots.map(([fx, fy]) => [(fx - 0.5) * vw, (fy - 0.5) * vh]),
+          lines: null,
+        };
+      }
     } else if (this.#step === 0) {
       f = {
         w,
@@ -2160,18 +2300,17 @@ if (!customElements.get('kzn-logo')) customElements.define('kzn-logo', KznLogo);
 
 // ---- env.js ----
 // kzn-logo — site test environment. Recreates the Figma hero (node 179-3924):
-// the production gradient + noise plate, with the authored dot composition as
-// the opening state — Signal #FEA021 at 10%, blend difference, heavy soft
-// edge (the comp's 100px layer blur). Click disperses the dots into
-// engine-generated constellations solved for the live window, independent of
-// the authored opening. Base frame 1440×880; drag the corner handle, `reset`
-// restores base. URL params override anything, e.g.
-//   ?fog=1&bokeh=1  (treatment stack)   ?alpha=.2&blend=normal   ?w=390&h=844
+// production gradient + noise plate beneath, our WebGL dots on top, with the
+// authored composition as the opening state — anchored to fixed insets
+// (138px sides · 53px top · 130px bottom at the 1440×880 base). Click
+// disperses into engine constellations solved for the live window,
+// independent of the opening. Every control mirrors into the URL.
 
 
 const params = new URLSearchParams(location.search);
-const logo = document.getElementById('logo');
-const frame = document.getElementById('frame');
+const $ = (id) => document.getElementById(id);
+const logo = $('logo');
+const frame = $('frame');
 const num = (k, d) => +(params.get(k) ?? d);
 
 // the page gradient, pre-composited (the 50%-opacity stops over #FFFBF8):
@@ -2184,61 +2323,185 @@ const GROUND = {
   ],
 };
 
-// the authored hero composition (measured from Figma), viewport fractions,
-// kernel (nearest center) first; r as a fraction of viewport height
+// the authored hero composition (measured from Figma node 179-3926):
+// dots as fractions of the inset box, kernel first — the middle dot,
+// tangent (with the comp's ~2px optical slack) to the comp's own crosshair
 const INTRO = {
-  r: 0.12728, // 112.0085px on the 880-tall comp
+  insets: [53, 138, 130, 138], // top right bottom left, px — fixed, vital
+  r: 0.1607, //                   112.0085px on the 697px-tall box
   dots: [
-    [0.5, 0.44207], //     top middle — this comp's reacher
-    [0.5, 0.77674],
-    [0.17362, 0.44207],
-    [0.82638, 0.44207],
-    [0.17362, 0.97903], // bottom pair sits half off the canvas
-    [0.82638, 0.97903],
+    [0.5, 0.90463], //      the reacher
+    [0.5, 0.48211],
+    [0.09623, 0.48211],
+    [0.90377, 0.48211],
+    [0.09623, 1.16005], //  bottom pair — authored to run off the canvas
+    [0.90377, 1.16005],
   ],
 };
 
-if (params.get('renderer') === 'svg') logo.removeAttribute('renderer');
-if (params.get('seed')) logo.setAttribute('seed', params.get('seed'));
-if (params.get('grid') === '1') logo.setAttribute('grid', '');
-
-// generated constellations: scale 1.31 makes engine dots (0.3875 cell) land
-// at the intro's 112px — dispersal keeps the authored dot size
-logo.options = { scale: num('scale', 1.31) };
-logo.appearance = {
-  ink: '#' + (params.get('ink') || 'FEA021'), // Signal
-  opacity: num('alpha', 0.1),
-  blend: params.get('blend') || 'difference',
-  soft: num('soft', 0.35), // ≈ the comp's 100px layer blur
-};
-logo.effects = {
-  // the Figma comp carries no treatment stack — flat by default, params enable
+const state = {
+  seed: params.get('seed') || 'kzn',
+  scale: num('scale', 1.31), // engine dots land at the intro's 112px
+  ink: params.get('ink') || '1E1E1E', // hex, no '#' — black for now
+  alpha: num('alpha', 1),
+  blend: params.get('blend') || 'normal',
+  soft: num('soft', 0),
   fog: num('fog', 0),
   bokeh: num('bokeh', 0),
   rays: num('rays', 0),
   zoom: num('zoom', 0),
   diffuse: num('diffuse', 0),
   grain: num('grain', 0),
-  tint: num('tint', 0),
-  tintColor: '#' + (params.get('tintc') || 'AFA8D8'),
-  background: GROUND,
+  duration: num('duration', 750),
+  stagger: num('stagger', 45),
+  panel: params.get('panel') !== '0',
 };
-logo.intro = INTRO;
-for (let i = 0, n = num('step', 0); i < n; i++) logo.shuffle();
+const FX = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse', 'grain'];
+const DEFAULTS = {
+  seed: 'kzn', scale: 1.31, ink: '1E1E1E', alpha: 1, blend: 'normal',
+  soft: 0, duration: 750, stagger: 45, panel: true,
+};
 
-if (params.get('w')) frame.style.width = params.get('w') + 'px';
-if (params.get('h')) frame.style.height = params.get('h') + 'px';
+function syncURL() {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(state)) {
+    if (k in DEFAULTS && v === DEFAULTS[k]) continue;
+    if (v !== '' && v !== false && v !== 0) p.set(k, v === true ? '1' : v);
+  }
+  const q = p.toString();
+  history.replaceState(null, '', q ? '?' + q : location.pathname);
+}
 
-document.getElementById('reset').onclick = () => {
+function applyFormation() {
+  logo.options = {
+    scale: state.scale,
+    duration: state.duration,
+    stagger: state.stagger,
+  };
+  $('seedIn').value = state.seed;
+  $('scaleR').value = state.scale;
+  $('scaleOut').textContent = state.scale.toFixed(2) + '×';
+  $('durOut').textContent = state.duration + 'ms';
+  $('duration').value = state.duration;
+  $('stagOut').textContent = state.stagger + 'ms';
+  $('stagger').value = state.stagger;
+}
+
+function applyDots() {
+  logo.appearance = {
+    ink: '#' + state.ink,
+    opacity: state.alpha,
+    blend: state.blend,
+    soft: state.soft,
+  };
+  $('inkc').value = '#' + state.ink;
+  $('alpha').value = state.alpha;
+  $('alphaOut').textContent = state.alpha.toFixed(2);
+  $('blend').value = state.blend;
+  $('soft').value = state.soft;
+  $('softOut').textContent = state.soft.toFixed(2);
+}
+
+function applyFx() {
+  logo.effects = {
+    fog: state.fog,
+    bokeh: state.bokeh,
+    rays: state.rays,
+    zoom: state.zoom,
+    diffuse: state.diffuse,
+    grain: state.grain,
+    background: GROUND,
+  };
+  for (const k of FX) {
+    $(k).value = state[k];
+    $(k + 'Out').textContent = state[k].toFixed(2);
+  }
+}
+
+function applyPanel() {
+  document.body.classList.toggle('nopanel', !state.panel);
+}
+
+// --- wiring ---------------------------------------------------------------
+$('shuffleBtn').onclick = () => logo.shuffle();
+$('introBtn').onclick = () => logo.rest();
+$('seedIn').addEventListener('change', () => {
+  state.seed = $('seedIn').value || 'kzn';
+  logo.setAttribute('seed', state.seed);
+  syncURL();
+});
+
+const slider = (id, key, apply) => {
+  $(id).addEventListener('input', () => {
+    state[key] = +$(id).value;
+    apply();
+    syncURL();
+  });
+};
+slider('scaleR', 'scale', applyFormation);
+slider('alpha', 'alpha', applyDots);
+slider('soft', 'soft', applyDots);
+slider('duration', 'duration', applyFormation);
+slider('stagger', 'stagger', applyFormation);
+for (const k of FX) slider(k, k, applyFx);
+
+$('blend').addEventListener('change', () => {
+  state.blend = $('blend').value;
+  applyDots();
+  syncURL();
+});
+$('inkc').addEventListener('input', () => {
+  state.ink = $('inkc').value.slice(1);
+  applyDots();
+  syncURL();
+});
+$('signalBtn').onclick = () => {
+  Object.assign(state, { ink: 'FEA021', alpha: 0.1, blend: 'difference' });
+  applyDots();
+  syncURL();
+};
+$('scaleReset').onclick = () => {
+  state.scale = 1.31;
+  applyFormation();
+  syncURL();
+};
+$('stackOn').onclick = () => {
+  for (const k of FX) state[k] = 1;
+  applyFx();
+  syncURL();
+};
+$('stackOff').onclick = () => {
+  for (const k of FX) state[k] = 0;
+  applyFx();
+  syncURL();
+};
+$('panelToggle').onclick = () => {
+  state.panel = !state.panel;
+  applyPanel();
+  syncURL();
+};
+$('reset').onclick = () => {
   frame.style.width = '1440px';
   frame.style.height = '880px';
 };
-document.getElementById('intro').onclick = () => logo.rest();
+
+if (params.get('w')) frame.style.width = params.get('w') + 'px';
+if (params.get('h')) frame.style.height = params.get('h') + 'px';
+if (params.get('grid') === '1') logo.setAttribute('grid', '');
 
 new ResizeObserver(([e]) => {
-  document.getElementById('size').textContent =
+  $('size').textContent =
     `${Math.round(e.contentRect.width)} × ${Math.round(e.contentRect.height)}`;
 }).observe(frame);
+
+// --- boot -----------------------------------------------------------------
+logo.setAttribute('seed', state.seed);
+applyFormation();
+applyDots();
+applyFx();
+applyPanel();
+logo.intro = INTRO;
+for (let i = 0, n = num('step', 0); i < n; i++) logo.shuffle();
 </script>
 </body>
 </html>

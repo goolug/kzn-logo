@@ -1634,7 +1634,8 @@ class KznLogo extends HTMLElement {
   #engineOpts = {};
   #effectsOpts = null;
   #appearanceOpts = null;
-  #intro = null; // authored opening formation: { r, dots: [[fx, fy]…] } in viewport fractions
+  #intro = null; // authored opening formation — see the `intro` setter
+  #px = null; //   last measured host size in CSS px
   #scale = 1; // grid zoom: 1 = four cells on the short side (the default web size)
   #resizeTimer = 0;
 
@@ -1766,10 +1767,14 @@ class KznLogo extends HTMLElement {
   }
 
   /**
-   * Authored opening formation, in viewport fractions (kernel first):
-   * { r: fractionOfHeight, dots: [[fx, fy], …] }. Shown at step 0 instead of
-   * the ideal mark; every shuffle leaves it for engine-generated
-   * constellations solved for the live window — independent of it.
+   * Authored opening formation (kernel first), shown at step 0 instead of
+   * the ideal mark. Two anchorings:
+   *  · { r, dots } — viewport fractions (r of viewport height)
+   *  · { insets: [top, right, bottom, left] px, r, dots } — dots are
+   *    fractions of the inset box, r a fraction of the box height; the px
+   *    insets stay FIXED under resize, like real page padding
+   * Every shuffle leaves it for engine-generated constellations solved for
+   * the live window — independent of the authored opening.
    */
   set intro(v) {
     this.#intro = v;
@@ -1959,6 +1964,7 @@ class KznLogo extends HTMLElement {
       const r = entries[entries.length - 1].contentRect;
       if (r.width < 1 || r.height < 1) return;
       this.#dyn?.resizePx?.(r.width, r.height, window.devicePixelRatio || 1);
+      this.#px = { w: r.width, h: r.height };
       const prev = this.#dims;
       this.#dims = this.#computeDims(r.width / r.height);
       const d = this.#dims;
@@ -2014,15 +2020,35 @@ class KznLogo extends HTMLElement {
     const { w, h, vw, vh } = this.#dims;
     let f;
     if (this.#step === 0 && this.#intro) {
-      // the authored composition scales with the viewport, like the comp
-      f = {
-        w,
-        h,
-        r: this.#intro.r * vh,
-        seed: 'intro',
-        dots: this.#intro.dots.map(([fx, fy]) => [(fx - 0.5) * vw, (fy - 0.5) * vh]),
-        lines: null,
-      };
+      const it = this.#intro;
+      if (it.insets && this.#px) {
+        // fixed px insets, proportional inside the box (the comp's anchoring)
+        const [t, ri, b, l] = it.insets;
+        const { w: pxW, h: pxH } = this.#px;
+        const bw = Math.max(1, pxW - l - ri);
+        const bh = Math.max(1, pxH - t - b);
+        f = {
+          w,
+          h,
+          r: (it.r * bh) / (pxH / vh),
+          seed: 'intro',
+          dots: it.dots.map(([bx, by]) => [
+            ((l + bx * bw) / pxW - 0.5) * vw,
+            ((t + by * bh) / pxH - 0.5) * vh,
+          ]),
+          lines: null,
+        };
+      } else {
+        // viewport-proportional anchoring
+        f = {
+          w,
+          h,
+          r: it.r * vh,
+          seed: 'intro',
+          dots: it.dots.map(([fx, fy]) => [(fx - 0.5) * vw, (fy - 0.5) * vh]),
+          lines: null,
+        };
+      }
     } else if (this.#step === 0) {
       f = {
         w,

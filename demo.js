@@ -173,6 +173,9 @@ logo.addEventListener('kzn-shuffle', (e) => {
   $('stats').textContent = `seed ${e.detail.seed}`;
   syncURL();
 });
+logo.addEventListener('kzn-drag', () => {
+  $('stats').textContent = 'custom formation (dragged)';
+});
 
 $('seed').value = demoState.seed;
 $('seed').addEventListener('change', () => {

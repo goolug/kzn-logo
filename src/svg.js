@@ -173,6 +173,16 @@ export function createDynamicRenderer(svg, opts = {}) {
       Object.assign(state, patch);
     },
     resizePx() {}, // SVG scales by itself
+    /** Set positions immediately (dragging) — cancels any running tween. */
+    poke(dots) {
+      if (state.raf) cancelAnimationFrame(state.raf);
+      state.raf = 0;
+      state.anims = null;
+      dots.forEach(([x, y], i) => put(i, x, y));
+    },
+    get current() {
+      return state.current.map((p) => p.slice());
+    },
     get formation() {
       return state.formation;
     },

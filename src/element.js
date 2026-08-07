@@ -6,14 +6,14 @@
 //
 // Sizing is the host's business (CSS width/height); ink is CSS `color`.
 
-import { generate, gridLines, MARK, MARK_IDEAL, R } from './core.js';
+import { generate, gridLines, constrainDrag, MARK, MARK_IDEAL, R } from './core.js';
 import { renderMark, createDynamicRenderer, toSVG } from './svg.js';
 import { createWebGLRenderer } from './webgl.js';
 
 const BASE_CELLS = 4; // cells on the short side — the 4×4 heritage
 
 class KznLogo extends HTMLElement {
-  static observedAttributes = ['mode', 'seed', 'grid', 'interactive', 'renderer'];
+  static observedAttributes = ['mode', 'seed', 'grid', 'interactive', 'renderer', 'drag'];
 
   #svg = null;
   #canvas = null;
@@ -33,6 +33,7 @@ class KznLogo extends HTMLElement {
     const style = document.createElement('style');
     style.textContent =
       ':host{display:block;color:inherit}:host([interactive]){cursor:pointer}' +
+      ':host([drag]){touch-action:none}' +
       'svg,canvas{display:block;width:100%;height:100%}' +
       '[hidden]{display:none !important}';
     this.#svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -48,12 +49,20 @@ class KznLogo extends HTMLElement {
     if (this.hasAttribute('interactive')) this.setAttribute('tabindex', '0');
     this.addEventListener('click', this.#onClick);
     this.addEventListener('keydown', this.#onKey);
+    this.addEventListener('pointerdown', this.#onPointerDown);
+    this.addEventListener('pointermove', this.#onPointerMove);
+    this.addEventListener('pointerup', this.#onPointerEnd);
+    this.addEventListener('pointercancel', this.#onPointerEnd);
     this.#mount();
   }
 
   disconnectedCallback() {
     this.removeEventListener('click', this.#onClick);
     this.removeEventListener('keydown', this.#onKey);
+    this.removeEventListener('pointerdown', this.#onPointerDown);
+    this.removeEventListener('pointermove', this.#onPointerMove);
+    this.removeEventListener('pointerup', this.#onPointerEnd);
+    this.removeEventListener('pointercancel', this.#onPointerEnd);
     this.#unmount();
   }
 
@@ -136,6 +145,7 @@ class KznLogo extends HTMLElement {
   }
 
   get seed() {
+    if (this.#customDrag) return 'custom';
     return this.#step === 0 ? 'mark' : `${this.#base}#${this.#step}`;
   }
 
@@ -147,7 +157,15 @@ class KznLogo extends HTMLElement {
 
   // --- internals ---------------------------------------------------------
 
+  #dragState = null; // { index, moved, x0, y0 } while a pointer holds a dot
+  #suppressClick = false;
+  #customDrag = false;
+
   #onClick = () => {
+    if (this.#suppressClick) {
+      this.#suppressClick = false;
+      return;
+    }
     if (this.hasAttribute('interactive')) this.shuffle();
   };
 
@@ -157,6 +175,95 @@ class KznLogo extends HTMLElement {
       e.preventDefault();
       this.shuffle();
     }
+  };
+
+  // --- dragging: dots move under the rules -------------------------------
+
+  #cellFromEvent(e) {
+    const rect = this.getBoundingClientRect();
+    const { vw, vh } = this.#dims;
+    return [
+      ((e.clientX - rect.left) / rect.width - 0.5) * vw,
+      ((e.clientY - rect.top) / rect.height - 0.5) * vh,
+    ];
+  }
+
+  #hitDot(p) {
+    const f = this.#dyn?.formation;
+    if (!f) return -1;
+    const cur = this.#dyn.current;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < cur.length; i++) {
+      const d = Math.hypot(p[0] - cur[i][0], p[1] - cur[i][1]);
+      if (d <= f.r * 1.2 && d < bestD) {
+        best = i;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  #dragReady() {
+    return (
+      this.hasAttribute('drag') && this.mode === 'dynamic' && this.#dyn && this.#dims
+    );
+  }
+
+  #onPointerDown = (e) => {
+    this.#suppressClick = false; // a fresh interaction always starts clean
+    if (!this.#dragReady() || !e.isPrimary) return;
+    const i = this.#hitDot(this.#cellFromEvent(e));
+    if (i < 0) return;
+    this.setPointerCapture(e.pointerId);
+    this.#dragState = { index: i, moved: false, x0: e.clientX, y0: e.clientY };
+  };
+
+  #onPointerMove = (e) => {
+    if (!this.#dragReady()) return;
+    if (!this.#dragState) {
+      if (this.hasAttribute('drag'))
+        this.style.cursor =
+          this.#hitDot(this.#cellFromEvent(e)) >= 0
+            ? 'grab'
+            : this.hasAttribute('interactive')
+              ? 'pointer'
+              : '';
+      return;
+    }
+    const s = this.#dragState;
+    if (!s.moved && Math.hypot(e.clientX - s.x0, e.clientY - s.y0) < 3) return;
+    s.moved = true;
+    this.style.cursor = 'grabbing';
+    const f = this.#dyn.formation;
+    const cur = this.#dyn.current;
+    cur[s.index] = constrainDrag(
+      { w: f.w, h: f.h, dots: cur },
+      s.index,
+      this.#cellFromEvent(e),
+      this.#engineOpts
+    );
+    this.#dyn.poke(cur);
+  };
+
+  #onPointerEnd = (e) => {
+    const s = this.#dragState;
+    if (!s) return;
+    this.#dragState = null;
+    if (this.hasPointerCapture?.(e.pointerId)) this.releasePointerCapture(e.pointerId);
+    this.style.cursor = '';
+    if (!s.moved) return; // a plain tap — let click-to-shuffle handle it
+    this.#suppressClick = true;
+    const f = this.#dyn.formation;
+    f.dots = this.#dyn.current;
+    this.#customDrag = true;
+    this.dispatchEvent(
+      new CustomEvent('kzn-drag', {
+        bubbles: true,
+        composed: true,
+        detail: { formation: f, index: s.index },
+      })
+    );
   };
 
   #mount() {
@@ -269,6 +376,7 @@ class KznLogo extends HTMLElement {
 
   #apply(animate) {
     if (this.mode !== 'dynamic' || !this.#dyn || !this.#dims) return;
+    this.#customDrag = false;
     const f = this.#formationForStep();
     this.#dyn.setFormation(f, { animate });
     this.#dyn.showGrid(this.hasAttribute('grid'));

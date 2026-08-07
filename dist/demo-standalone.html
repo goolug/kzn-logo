@@ -153,7 +153,7 @@
 
 <main>
   <section>
-    <div id="stage"><kzn-logo id="logo" mode="dynamic" interactive seed="kzn"></kzn-logo></div>
+    <div id="stage"><kzn-logo id="logo" mode="dynamic" interactive drag seed="kzn"></kzn-logo></div>
     <div class="stagebar">
       <button data-aspect="mark">mark 1.156:1</button>
       <button data-aspect="square">1:1</button>
@@ -184,7 +184,7 @@
         <output id="scaleOut"></output>
         <button id="scaleReset" title="back to the default 4-cell grid">reset</button>
       </div>
-      <p class="note">Click the logo itself to shuffle, too. Same seed &amp; step → same formation, anywhere. Scale 1 = four cells on the short side; zoom in and the dots bleed like the blown-up background, zoom out and the grid extends.</p>
+      <p class="note">Click empty canvas to shuffle; <strong>drag any dot</strong> — the kernel orbits the center (edge always touching), the others snap along the grid rule and never collide. Same seed &amp; step → same formation, anywhere. Scale 1 = four cells on the short side; zoom in and dots bleed like the blown-up background, zoom out and the grid extends.</p>
     </div>
 
     <div class="group">
@@ -609,6 +609,78 @@ function gridLines(w, h) {
 }
 
 /**
+ * Constrain a dragged dot to the mark's rules. Returns the legal position
+ * nearest the pointer — or the dot's previous position when the pointer
+ * asks for something illegal (dots stop at contact, nothing ever covers
+ * the crosshair).
+ *  · index 0 (the kernel) ORBITS: its edge stays pinned through the center,
+ *    only its angle follows the pointer
+ *  · other dots project onto the active placement rule ('construction'
+ *    snaps between lattice seats, 'lines' slides along gridlines,
+ *    'points' snaps to intersections), inside the canvas bounds
+ * The rank falloff is deliberately not enforced here — dragging is the
+ * user overriding the composition.
+ */
+function constrainDrag(formation, index, target, options = {}) {
+  const o = { ...defaults, ...options };
+  const { w, h, dots } = formation;
+  const limX = w / 2 - R - o.edge;
+  const limY = h / 2 - R - o.edge;
+  const prev = dots[index].slice();
+  const minD = 2 * R + o.gap;
+  const clear = (p) => {
+    for (let j = 0; j < dots.length; j++) {
+      if (j === index) continue;
+      if (dist(p, dots[j]) < minD) return false;
+    }
+    return true;
+  };
+
+  if (index === 0) {
+    const a = Math.atan2(target[1], target[0]);
+    if (!Number.isFinite(a) || (target[0] === 0 && target[1] === 0)) return prev;
+    for (let k = 0; k <= 180; k++) {
+      for (const s of k === 0 ? [1] : [1, -1]) {
+        const ang = a + (s * k * Math.PI) / 180;
+        const p = [R * Math.cos(ang), R * Math.sin(ang)];
+        if (clear(p)) return p;
+      }
+    }
+    return prev;
+  }
+
+  const clampX = (x) => Math.max(-limX, Math.min(limX, x));
+  const clampY = (y) => Math.max(-limY, Math.min(limY, y));
+  const lineX = (x) =>
+    Math.max(Math.ceil(-limX), Math.min(Math.floor(limX), Math.round(x)));
+  const lineY = (y) =>
+    Math.max(Math.ceil(-limY), Math.min(Math.floor(limY), Math.round(y)));
+
+  let candidates;
+  if (o.placement === 'points') {
+    candidates = [[lineX(target[0]), lineY(target[1])]];
+  } else if (o.placement === 'lines') {
+    candidates = [
+      [lineX(target[0]), clampY(target[1])], // stick to a vertical line
+      [clampX(target[0]), lineY(target[1])], // or to a horizontal one
+    ];
+  } else {
+    const x = lineX(target[0]);
+    const rest = Math.round(target[1]);
+    const hang = Math.round(target[1] - R) + R;
+    candidates = [rest, hang]
+      .filter((y) => y >= -limY && y <= limY)
+      .map((y) => [x, y]);
+  }
+  candidates.sort((a, b) => dist(a, target) - dist(b, target));
+  for (const p of candidates) {
+    if (Math.hypot(p[0], p[1]) < R + 0.02) continue; // center is kernel's alone
+    if (clear(p)) return p;
+  }
+  return prev;
+}
+
+/**
  * Reorder a new formation's non-kernel dots so each existing circle travels
  * the least (sum of squared moves, brute force over 5! permutations).
  * Circle 0 is the kernel and keeps its role — it only ever orbits the center.
@@ -929,6 +1001,16 @@ function createDynamicRenderer(svg, opts = {}) {
       Object.assign(state, patch);
     },
     resizePx() {}, // SVG scales by itself
+    /** Set positions immediately (dragging) — cancels any running tween. */
+    poke(dots) {
+      if (state.raf) cancelAnimationFrame(state.raf);
+      state.raf = 0;
+      state.anims = null;
+      dots.forEach(([x, y], i) => put(i, x, y));
+    },
+    get current() {
+      return state.current.map((p) => p.slice());
+    },
     get formation() {
       return state.formation;
     },
@@ -1649,6 +1731,15 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       readColors();
       draw();
     },
+    /** Set positions immediately (dragging) — cancels any running tween. */
+    poke(dots) {
+      state.anims = null;
+      state.current = dots.map((d) => d.slice());
+      draw();
+    },
+    get current() {
+      return state.current.map((d) => d.slice());
+    },
     resizePx(cssW, cssH, dpr) {
       const scale = Math.min(dpr || 1, 2);
       const w = Math.max(1, Math.round(cssW * scale));
@@ -1692,7 +1783,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
 const BASE_CELLS = 4; // cells on the short side — the 4×4 heritage
 
 class KznLogo extends HTMLElement {
-  static observedAttributes = ['mode', 'seed', 'grid', 'interactive', 'renderer'];
+  static observedAttributes = ['mode', 'seed', 'grid', 'interactive', 'renderer', 'drag'];
 
   #svg = null;
   #canvas = null;
@@ -1712,6 +1803,7 @@ class KznLogo extends HTMLElement {
     const style = document.createElement('style');
     style.textContent =
       ':host{display:block;color:inherit}:host([interactive]){cursor:pointer}' +
+      ':host([drag]){touch-action:none}' +
       'svg,canvas{display:block;width:100%;height:100%}' +
       '[hidden]{display:none !important}';
     this.#svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1727,12 +1819,20 @@ class KznLogo extends HTMLElement {
     if (this.hasAttribute('interactive')) this.setAttribute('tabindex', '0');
     this.addEventListener('click', this.#onClick);
     this.addEventListener('keydown', this.#onKey);
+    this.addEventListener('pointerdown', this.#onPointerDown);
+    this.addEventListener('pointermove', this.#onPointerMove);
+    this.addEventListener('pointerup', this.#onPointerEnd);
+    this.addEventListener('pointercancel', this.#onPointerEnd);
     this.#mount();
   }
 
   disconnectedCallback() {
     this.removeEventListener('click', this.#onClick);
     this.removeEventListener('keydown', this.#onKey);
+    this.removeEventListener('pointerdown', this.#onPointerDown);
+    this.removeEventListener('pointermove', this.#onPointerMove);
+    this.removeEventListener('pointerup', this.#onPointerEnd);
+    this.removeEventListener('pointercancel', this.#onPointerEnd);
     this.#unmount();
   }
 
@@ -1815,6 +1915,7 @@ class KznLogo extends HTMLElement {
   }
 
   get seed() {
+    if (this.#customDrag) return 'custom';
     return this.#step === 0 ? 'mark' : `${this.#base}#${this.#step}`;
   }
 
@@ -1826,7 +1927,15 @@ class KznLogo extends HTMLElement {
 
   // --- internals ---------------------------------------------------------
 
+  #dragState = null; // { index, moved, x0, y0 } while a pointer holds a dot
+  #suppressClick = false;
+  #customDrag = false;
+
   #onClick = () => {
+    if (this.#suppressClick) {
+      this.#suppressClick = false;
+      return;
+    }
     if (this.hasAttribute('interactive')) this.shuffle();
   };
 
@@ -1836,6 +1945,95 @@ class KznLogo extends HTMLElement {
       e.preventDefault();
       this.shuffle();
     }
+  };
+
+  // --- dragging: dots move under the rules -------------------------------
+
+  #cellFromEvent(e) {
+    const rect = this.getBoundingClientRect();
+    const { vw, vh } = this.#dims;
+    return [
+      ((e.clientX - rect.left) / rect.width - 0.5) * vw,
+      ((e.clientY - rect.top) / rect.height - 0.5) * vh,
+    ];
+  }
+
+  #hitDot(p) {
+    const f = this.#dyn?.formation;
+    if (!f) return -1;
+    const cur = this.#dyn.current;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < cur.length; i++) {
+      const d = Math.hypot(p[0] - cur[i][0], p[1] - cur[i][1]);
+      if (d <= f.r * 1.2 && d < bestD) {
+        best = i;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  #dragReady() {
+    return (
+      this.hasAttribute('drag') && this.mode === 'dynamic' && this.#dyn && this.#dims
+    );
+  }
+
+  #onPointerDown = (e) => {
+    this.#suppressClick = false; // a fresh interaction always starts clean
+    if (!this.#dragReady() || !e.isPrimary) return;
+    const i = this.#hitDot(this.#cellFromEvent(e));
+    if (i < 0) return;
+    this.setPointerCapture(e.pointerId);
+    this.#dragState = { index: i, moved: false, x0: e.clientX, y0: e.clientY };
+  };
+
+  #onPointerMove = (e) => {
+    if (!this.#dragReady()) return;
+    if (!this.#dragState) {
+      if (this.hasAttribute('drag'))
+        this.style.cursor =
+          this.#hitDot(this.#cellFromEvent(e)) >= 0
+            ? 'grab'
+            : this.hasAttribute('interactive')
+              ? 'pointer'
+              : '';
+      return;
+    }
+    const s = this.#dragState;
+    if (!s.moved && Math.hypot(e.clientX - s.x0, e.clientY - s.y0) < 3) return;
+    s.moved = true;
+    this.style.cursor = 'grabbing';
+    const f = this.#dyn.formation;
+    const cur = this.#dyn.current;
+    cur[s.index] = constrainDrag(
+      { w: f.w, h: f.h, dots: cur },
+      s.index,
+      this.#cellFromEvent(e),
+      this.#engineOpts
+    );
+    this.#dyn.poke(cur);
+  };
+
+  #onPointerEnd = (e) => {
+    const s = this.#dragState;
+    if (!s) return;
+    this.#dragState = null;
+    if (this.hasPointerCapture?.(e.pointerId)) this.releasePointerCapture(e.pointerId);
+    this.style.cursor = '';
+    if (!s.moved) return; // a plain tap — let click-to-shuffle handle it
+    this.#suppressClick = true;
+    const f = this.#dyn.formation;
+    f.dots = this.#dyn.current;
+    this.#customDrag = true;
+    this.dispatchEvent(
+      new CustomEvent('kzn-drag', {
+        bubbles: true,
+        composed: true,
+        detail: { formation: f, index: s.index },
+      })
+    );
   };
 
   #mount() {
@@ -1948,6 +2146,7 @@ class KznLogo extends HTMLElement {
 
   #apply(animate) {
     if (this.mode !== 'dynamic' || !this.#dyn || !this.#dims) return;
+    this.#customDrag = false;
     const f = this.#formationForStep();
     this.#dyn.setFormation(f, { animate });
     this.#dyn.showGrid(this.hasAttribute('grid'));
@@ -2137,6 +2336,9 @@ logo.addEventListener('kzn-shuffle', (e) => {
   demoState.step = e.detail.step;
   $('stats').textContent = `seed ${e.detail.seed}`;
   syncURL();
+});
+logo.addEventListener('kzn-drag', () => {
+  $('stats').textContent = 'custom formation (dragged)';
 });
 
 $('seed').value = demoState.seed;

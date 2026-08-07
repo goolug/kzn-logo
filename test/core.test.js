@@ -9,6 +9,7 @@ import {
   generate,
   gridLines,
   assignTargets,
+  constrainDrag,
   rng,
 } from '../src/core.js';
 
@@ -192,6 +193,58 @@ test('gridLines: interior lines only, crosshair present at any aspect', () => {
   const wide = gridLines(9.6, 4);
   assert.ok(wide.v.includes(0) && wide.h.includes(0), 'no crosshair');
   assert.equal(wide.v.length, 9);
+});
+
+test('constrainDrag: kernel always orbits — edge pinned through the center', () => {
+  const f = { w: 4, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  for (const target of [[1.7, 0.4], [-2, -2], [0.01, 1.9], [-0.4, 0.01]]) {
+    const p = constrainDrag(f, 0, target);
+    assert.ok(Math.abs(Math.hypot(p[0], p[1]) - R) < EPS, 'kernel left the crosshair');
+    for (let j = 1; j < f.dots.length; j++)
+      assert.ok(dist(p, f.dots[j]) >= 2 * R + defaults.gap - EPS, 'kernel collided');
+  }
+  // degenerate target: stay put
+  assert.deepEqual(constrainDrag(f, 0, [0, 0]), f.dots[0]);
+});
+
+test('constrainDrag: construction placement stays legal, in bounds, no contact', () => {
+  const f = { w: 8, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  const r = rng('drag');
+  for (let k = 0; k < 300; k++) {
+    const i = 1 + Math.floor(r() * 5);
+    const target = [(r() * 2 - 1) * 4.5, (r() * 2 - 1) * 2.5];
+    const p = constrainDrag(f, i, target);
+    assert.ok(Math.abs(p[0] - Math.round(p[0])) < EPS, 'x off the lattice');
+    const resting = Math.abs(p[1] - Math.round(p[1])) < EPS;
+    const hanging = Math.abs(p[1] - R - Math.round(p[1] - R)) < EPS;
+    assert.ok(resting || hanging, 'y neither resting nor hanging');
+    assert.ok(Math.abs(p[0]) <= 4 - R - defaults.edge + EPS, 'x out of bounds');
+    assert.ok(Math.abs(p[1]) <= 2 - R - defaults.edge + EPS, 'y out of bounds');
+    assert.ok(Math.hypot(p[0], p[1]) > R + 0.02 - EPS, 'covered the crosshair');
+    for (let j = 0; j < f.dots.length; j++)
+      if (j !== i)
+        assert.ok(dist(p, f.dots[j]) >= 2 * R + defaults.gap - EPS, 'dots touched');
+    f.dots[i] = p; // walk on — every intermediate state must stay legal
+  }
+});
+
+test('constrainDrag: blocked targets leave the dot where it was', () => {
+  const f = { w: 4, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  // aim dot 5 straight at dot 4's seat — no legal nearby spot on that side
+  const before = f.dots[4].slice();
+  const p = constrainDrag(f, 4, [f.dots[5][0], f.dots[5][1]]);
+  for (let j = 0; j < f.dots.length; j++)
+    if (j !== 4)
+      assert.ok(dist(p, f.dots[j]) >= 2 * R + defaults.gap - EPS);
+  assert.ok(Math.hypot(p[0] - before[0], p[1] - before[1]) < 3, 'teleported oddly');
+});
+
+test('constrainDrag: lines placement keeps the center on a gridline', () => {
+  const f = { w: 4, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  const p = constrainDrag(f, 2, [-1.4, 0.6], { placement: 'lines' });
+  const onV = Math.abs(p[0] - Math.round(p[0])) < EPS;
+  const onH = Math.abs(p[1] - Math.round(p[1])) < EPS;
+  assert.ok(onV || onH, 'left every gridline');
 });
 
 test('assignTargets: kernel pinned, permutation valid, no worse than identity', () => {

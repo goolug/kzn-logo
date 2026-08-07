@@ -702,6 +702,15 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
       readColors();
       draw();
     },
+    /** Set positions immediately (dragging) — cancels any running tween. */
+    poke(dots) {
+      state.anims = null;
+      state.current = dots.map((d) => d.slice());
+      draw();
+    },
+    get current() {
+      return state.current.map((d) => d.slice());
+    },
     resizePx(cssW, cssH, dpr) {
       const scale = Math.min(dpr || 1, 2);
       const w = Math.max(1, Math.round(cssW * scale));

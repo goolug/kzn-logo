@@ -262,6 +262,78 @@ export function gridLines(w, h) {
 }
 
 /**
+ * Constrain a dragged dot to the mark's rules. Returns the legal position
+ * nearest the pointer — or the dot's previous position when the pointer
+ * asks for something illegal (dots stop at contact, nothing ever covers
+ * the crosshair).
+ *  · index 0 (the kernel) ORBITS: its edge stays pinned through the center,
+ *    only its angle follows the pointer
+ *  · other dots project onto the active placement rule ('construction'
+ *    snaps between lattice seats, 'lines' slides along gridlines,
+ *    'points' snaps to intersections), inside the canvas bounds
+ * The rank falloff is deliberately not enforced here — dragging is the
+ * user overriding the composition.
+ */
+export function constrainDrag(formation, index, target, options = {}) {
+  const o = { ...defaults, ...options };
+  const { w, h, dots } = formation;
+  const limX = w / 2 - R - o.edge;
+  const limY = h / 2 - R - o.edge;
+  const prev = dots[index].slice();
+  const minD = 2 * R + o.gap;
+  const clear = (p) => {
+    for (let j = 0; j < dots.length; j++) {
+      if (j === index) continue;
+      if (dist(p, dots[j]) < minD) return false;
+    }
+    return true;
+  };
+
+  if (index === 0) {
+    const a = Math.atan2(target[1], target[0]);
+    if (!Number.isFinite(a) || (target[0] === 0 && target[1] === 0)) return prev;
+    for (let k = 0; k <= 180; k++) {
+      for (const s of k === 0 ? [1] : [1, -1]) {
+        const ang = a + (s * k * Math.PI) / 180;
+        const p = [R * Math.cos(ang), R * Math.sin(ang)];
+        if (clear(p)) return p;
+      }
+    }
+    return prev;
+  }
+
+  const clampX = (x) => Math.max(-limX, Math.min(limX, x));
+  const clampY = (y) => Math.max(-limY, Math.min(limY, y));
+  const lineX = (x) =>
+    Math.max(Math.ceil(-limX), Math.min(Math.floor(limX), Math.round(x)));
+  const lineY = (y) =>
+    Math.max(Math.ceil(-limY), Math.min(Math.floor(limY), Math.round(y)));
+
+  let candidates;
+  if (o.placement === 'points') {
+    candidates = [[lineX(target[0]), lineY(target[1])]];
+  } else if (o.placement === 'lines') {
+    candidates = [
+      [lineX(target[0]), clampY(target[1])], // stick to a vertical line
+      [clampX(target[0]), lineY(target[1])], // or to a horizontal one
+    ];
+  } else {
+    const x = lineX(target[0]);
+    const rest = Math.round(target[1]);
+    const hang = Math.round(target[1] - R) + R;
+    candidates = [rest, hang]
+      .filter((y) => y >= -limY && y <= limY)
+      .map((y) => [x, y]);
+  }
+  candidates.sort((a, b) => dist(a, target) - dist(b, target));
+  for (const p of candidates) {
+    if (Math.hypot(p[0], p[1]) < R + 0.02) continue; // center is kernel's alone
+    if (clear(p)) return p;
+  }
+  return prev;
+}
+
+/**
  * Reorder a new formation's non-kernel dots so each existing circle travels
  * the least (sum of squared moves, brute force over 5! permutations).
  * Circle 0 is the kernel and keeps its role — it only ever orbits the center.

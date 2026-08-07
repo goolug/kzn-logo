@@ -230,6 +230,8 @@
     ink: 'FAF8F5', alpha: 0.25, blend: 'overlay', bg0: 'FFFBF8', bg2: 'FFFBF8',
     rays: 1, raymode: 'add', raycolor: '', rayink: 0,
   };
+  // land clean: the panel stays tucked behind the corner link
+  window.KZN_PANEL = false;
 </script>
 <script type="module">
 // ---- src/core.js ----
@@ -2571,7 +2573,10 @@ for (const [k, d] of Object.entries(DEFAULTS))
 state.order = (params.get('order') || ORDERABLE.join(',')).split(',')
   .filter((n) => ORDERABLE.includes(n));
 for (const n of ORDERABLE) if (!state.order.includes(n)) state.order.push(n);
-state.panel = params.get('panel') !== '0';
+// a page may land with the panel tucked away (window.KZN_PANEL = false);
+// the corner link and ?panel=0/1 override either way
+const PANEL_DEFAULT = window.KZN_PANEL ?? true;
+state.panel = params.has('panel') ? params.get('panel') === '1' : PANEL_DEFAULT;
 
 function syncURL() {
   const p = new URLSearchParams();
@@ -2579,7 +2584,7 @@ function syncURL() {
     if (k === 'order') {
       if (v.join(',') !== ORDERABLE.join(',')) p.set(k, v.join(','));
     } else if (k === 'panel') {
-      if (!v) p.set(k, '0');
+      if (v !== PANEL_DEFAULT) p.set(k, v ? '1' : '0');
     } else if (v !== DEFAULTS[k]) p.set(k, v);
   }
   const q = p.toString();

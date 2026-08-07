@@ -760,14 +760,17 @@ function freeDrag(formation, index, target, options = {}) {
 }
 
 /**
- * Reorder a new formation's non-kernel dots so each existing circle travels
- * the least (sum of squared moves, brute force over 5! permutations).
- * Circle 0 is the kernel and keeps its role — it only ever orbits the center.
+ * Reorder a new formation's dots so each existing circle travels the least
+ * (sum of squared moves, brute force over the permutations).
+ * With pinKernel (default) circle 0 keeps the kernel role — the mark's
+ * reacher identity. Without it the center is an office, not an identity:
+ * every circle competes for every seat, and whichever lands on target[0]
+ * holds the center this formation.
  * Returns a new dots array aligned to the current circles' indices.
  */
-function assignTargets(current, target) {
-  const nk = target.length - 1;
-  const idx = Array.from({ length: nk }, (_, i) => i + 1);
+function assignTargets(current, target, pinKernel = true) {
+  const start = pinKernel ? 1 : 0;
+  const idx = Array.from({ length: target.length - start }, (_, i) => i + start);
   let bestPerm = idx.slice();
   let bestCost = Infinity;
   const d2 = (a, b) => {
@@ -779,7 +782,7 @@ function assignTargets(current, target) {
     if (k === arr.length) {
       let cost = 0;
       for (let i = 0; i < arr.length; i++)
-        cost += d2(current[i + 1], target[arr[i]]);
+        cost += d2(current[i + start], target[arr[i]]);
       if (cost < bestCost) { bestCost = cost; bestPerm = arr.slice(); }
       return;
     }
@@ -789,8 +792,9 @@ function assignTargets(current, target) {
       [arr[k], arr[i]] = [arr[i], arr[k]];
     }
   };
-  if (current && current.length === target.length && nk > 0) permute(idx.slice(), 0);
-  const out = [target[0]];
+  if (current && current.length === target.length && idx.length > 0)
+    permute(idx.slice(), 0);
+  const out = pinKernel ? [target[0]] : [];
   for (const p of bestPerm) out.push(target[p]);
   return out;
 }
@@ -868,16 +872,18 @@ function segNearestToOrigin(a, b) {
 }
 
 /**
- * Build per-dot tweens from current positions to targets (index 0 = kernel).
+ * Build per-dot tweens from current positions to targets. With orbit (the
+ * default) circle 0 is the pinned kernel and rides the crosshair; without
+ * it every dot travels free — the center is just a destination.
  * `now` is the caller's clock so renderers stay testable.
  */
-function buildTweens(current, targets, { duration, stagger }, now) {
+function buildTweens(current, targets, { duration, stagger, orbit = true }, now) {
   return targets.map((to, i) => {
     const from = current[i] ?? to;
-    const path = i === 0 ? kernelPath(from, to) : dotPath(from, to);
+    const path = orbit && i === 0 ? kernelPath(from, to) : dotPath(from, to);
     return {
       path,
-      t0: now + (i === 0 ? 0 : i * stagger),
+      t0: now + (orbit && i === 0 ? 0 : i * stagger),
       dur: duration,
       done: false,
     };
@@ -971,6 +977,7 @@ function createDynamicRenderer(svg, opts = {}) {
     stagger: opts.stagger ?? 45,
     easing: opts.easing ?? 'cubic',
     motion: opts.motion ?? 'glide', // 'glide' | 'instant'
+    kernel: opts.kernel ?? 'fixed', // 'fixed' | 'roam' — is the center an identity or an office
     reduced:
       typeof matchMedia === 'function' &&
       matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -1078,7 +1085,8 @@ function createDynamicRenderer(svg, opts = {}) {
         state.motion === 'instant' ||
         state.duration <= 0;
 
-      const targets = first ? f.dots : assignTargets(state.current, f.dots);
+      const pin = state.kernel !== 'roam';
+      const targets = first ? f.dots : assignTargets(state.current, f.dots, pin);
 
       if (instant) {
         if (state.raf) cancelAnimationFrame(state.raf);
@@ -1088,7 +1096,12 @@ function createDynamicRenderer(svg, opts = {}) {
         return;
       }
 
-      state.anims = buildTweens(state.current, targets, state, performance.now());
+      state.anims = buildTweens(
+        state.current,
+        targets,
+        { duration: state.duration, stagger: state.stagger, orbit: pin },
+        performance.now()
+      );
       if (!state.raf) state.raf = requestAnimationFrame(tick);
     },
     showGrid(on) {
@@ -1641,6 +1654,7 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     stagger: opts.stagger ?? 45,
     easing: opts.easing ?? 'cubic',
     motion: opts.motion ?? 'glide',
+    kernel: opts.kernel ?? 'fixed', // 'fixed' | 'roam'
     reduced:
       typeof matchMedia === 'function' &&
       matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -1667,7 +1681,8 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       rayWobble: 0.15,
       rayFollow: 0, //    0..1 — how much the light chases the pointer
       rayMode: 'add', //  add·screen·dodge·softlight (dark grounds) — multiply·burn·subtract (light)
-      rayInk: 0, //       0..1 — shafts drift from scene light to pure ink
+      rayInk: 0, //       0..1 — how much the shafts take the ray color
+      rayColor: null, //  shaft color ('#…'); null = the dots' ink
       renderScale: 1, //  resolution factor for the whole chain
       order: null, //     pass order, e.g. ['rays','fog','bokeh','zoom','diffuse']
     },
@@ -1887,7 +1902,10 @@ function createWebGLRenderer(canvas, host, opts = {}) {
           gl.uniform1i(u.uAddT, 1);
           gl.uniform1i(u.uMode, RAY_MODES[e.rayMode] ?? 0);
           gl.uniform1f(u.uRayInk, e.rayInk ?? 0);
-          gl.uniform4fv(u.uInkC, state.ink);
+          gl.uniform4fv(
+            u.uInkC,
+            e.rayColor ? parseColor(e.rayColor) : state.ink
+          );
         });
         swap();
       },
@@ -2032,14 +2050,22 @@ function createWebGLRenderer(canvas, host, opts = {}) {
         state.reduced ||
         state.motion === 'instant' ||
         state.duration <= 0;
-      const targetDots = first ? f.dots : assignTargets(state.current, f.dots);
+      const pin = state.kernel !== 'roam';
+      const targetDots = first
+        ? f.dots
+        : assignTargets(state.current, f.dots, pin);
       if (instant) {
         state.anims = null;
         state.current = targetDots.map((d) => d.slice());
         draw();
         state.onSettle?.();
       } else {
-        state.anims = buildTweens(state.current, targetDots, state, performance.now());
+        state.anims = buildTweens(
+          state.current,
+          targetDots,
+          { duration: state.duration, stagger: state.stagger, orbit: pin },
+          performance.now()
+        );
       }
       ensureLoop();
     },
@@ -2221,7 +2247,7 @@ class KznLogo extends HTMLElement {
   /** Engine + motion options; merged, live. See core.defaults and svg renderer. */
   set options(patch) {
     const motion = {};
-    for (const k of ['duration', 'stagger', 'easing', 'motion'])
+    for (const k of ['duration', 'stagger', 'easing', 'motion', 'kernel'])
       if (k in patch) motion[k] = patch[k];
     for (const k of ['placement', 'gap', 'spread', 'edge', 'rankStep', 'count', 'rollouts'])
       if (k in patch) this.#engineOpts[k] = patch[k];

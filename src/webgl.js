@@ -502,6 +502,7 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
     stagger: opts.stagger ?? 45,
     easing: opts.easing ?? 'cubic',
     motion: opts.motion ?? 'glide',
+    kernel: opts.kernel ?? 'fixed', // 'fixed' | 'roam'
     reduced:
       typeof matchMedia === 'function' &&
       matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -528,7 +529,8 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
       rayWobble: 0.15,
       rayFollow: 0, //    0..1 — how much the light chases the pointer
       rayMode: 'add', //  add·screen·dodge·softlight (dark grounds) — multiply·burn·subtract (light)
-      rayInk: 0, //       0..1 — shafts drift from scene light to pure ink
+      rayInk: 0, //       0..1 — how much the shafts take the ray color
+      rayColor: null, //  shaft color ('#…'); null = the dots' ink
       renderScale: 1, //  resolution factor for the whole chain
       order: null, //     pass order, e.g. ['rays','fog','bokeh','zoom','diffuse']
     },
@@ -748,7 +750,10 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
           gl.uniform1i(u.uAddT, 1);
           gl.uniform1i(u.uMode, RAY_MODES[e.rayMode] ?? 0);
           gl.uniform1f(u.uRayInk, e.rayInk ?? 0);
-          gl.uniform4fv(u.uInkC, state.ink);
+          gl.uniform4fv(
+            u.uInkC,
+            e.rayColor ? parseColor(e.rayColor) : state.ink
+          );
         });
         swap();
       },
@@ -893,14 +898,22 @@ export function createWebGLRenderer(canvas, host, opts = {}) {
         state.reduced ||
         state.motion === 'instant' ||
         state.duration <= 0;
-      const targetDots = first ? f.dots : assignTargets(state.current, f.dots);
+      const pin = state.kernel !== 'roam';
+      const targetDots = first
+        ? f.dots
+        : assignTargets(state.current, f.dots, pin);
       if (instant) {
         state.anims = null;
         state.current = targetDots.map((d) => d.slice());
         draw();
         state.onSettle?.();
       } else {
-        state.anims = buildTweens(state.current, targetDots, state, performance.now());
+        state.anims = buildTweens(
+          state.current,
+          targetDots,
+          { duration: state.duration, stagger: state.stagger, orbit: pin },
+          performance.now()
+        );
       }
       ensureLoop();
     },

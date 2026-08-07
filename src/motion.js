@@ -71,16 +71,18 @@ function segNearestToOrigin(a, b) {
 }
 
 /**
- * Build per-dot tweens from current positions to targets (index 0 = kernel).
+ * Build per-dot tweens from current positions to targets. With orbit (the
+ * default) circle 0 is the pinned kernel and rides the crosshair; without
+ * it every dot travels free — the center is just a destination.
  * `now` is the caller's clock so renderers stay testable.
  */
-export function buildTweens(current, targets, { duration, stagger }, now) {
+export function buildTweens(current, targets, { duration, stagger, orbit = true }, now) {
   return targets.map((to, i) => {
     const from = current[i] ?? to;
-    const path = i === 0 ? kernelPath(from, to) : dotPath(from, to);
+    const path = orbit && i === 0 ? kernelPath(from, to) : dotPath(from, to);
     return {
       path,
-      t0: now + (i === 0 ? 0 : i * stagger),
+      t0: now + (orbit && i === 0 ? 0 : i * stagger),
       dur: duration,
       done: false,
     };

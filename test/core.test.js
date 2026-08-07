@@ -302,6 +302,23 @@ test('constrainDrag: lines placement keeps the center on a gridline', () => {
   assert.ok(onV || onH, 'left every gridline');
 });
 
+test('assignTargets: roaming mode — any circle may take the center seat', () => {
+  const r = rng('roam');
+  const mk = () => Array.from({ length: 6 }, () => [r() * 4 - 2, r() * 4 - 2]);
+  let kernelReassigned = 0;
+  for (let k = 0; k < 40; k++) {
+    const cur = mk();
+    const tgt = mk();
+    const out = assignTargets(cur, tgt, false);
+    assert.deepEqual([...out].sort(), [...tgt].sort(), 'not a permutation');
+    // roaming must never be worse than the pinned assignment
+    const cost = (arr) => arr.reduce((s, p, i) => s + dist(cur[i], p) ** 2, 0);
+    assert.ok(cost(out) <= cost(assignTargets(cur, tgt, true)) + EPS);
+    if (out[0] !== tgt[0]) kernelReassigned++;
+  }
+  assert.ok(kernelReassigned > 5, 'the center seat never changed hands');
+});
+
 test('assignTargets: kernel pinned, permutation valid, no worse than identity', () => {
   const r = rng('assign');
   for (let k = 0; k < 60; k++) {

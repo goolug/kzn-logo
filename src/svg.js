@@ -64,6 +64,7 @@ export function createDynamicRenderer(svg, opts = {}) {
     stagger: opts.stagger ?? 45,
     easing: opts.easing ?? 'cubic',
     motion: opts.motion ?? 'glide', // 'glide' | 'instant'
+    kernel: opts.kernel ?? 'fixed', // 'fixed' | 'roam' — is the center an identity or an office
     reduced:
       typeof matchMedia === 'function' &&
       matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -171,7 +172,8 @@ export function createDynamicRenderer(svg, opts = {}) {
         state.motion === 'instant' ||
         state.duration <= 0;
 
-      const targets = first ? f.dots : assignTargets(state.current, f.dots);
+      const pin = state.kernel !== 'roam';
+      const targets = first ? f.dots : assignTargets(state.current, f.dots, pin);
 
       if (instant) {
         if (state.raf) cancelAnimationFrame(state.raf);
@@ -181,7 +183,12 @@ export function createDynamicRenderer(svg, opts = {}) {
         return;
       }
 
-      state.anims = buildTweens(state.current, targets, state, performance.now());
+      state.anims = buildTweens(
+        state.current,
+        targets,
+        { duration: state.duration, stagger: state.stagger, orbit: pin },
+        performance.now()
+      );
       if (!state.raf) state.raf = requestAnimationFrame(tick);
     },
     showGrid(on) {

@@ -366,14 +366,17 @@ export function freeDrag(formation, index, target, options = {}) {
 }
 
 /**
- * Reorder a new formation's non-kernel dots so each existing circle travels
- * the least (sum of squared moves, brute force over 5! permutations).
- * Circle 0 is the kernel and keeps its role — it only ever orbits the center.
+ * Reorder a new formation's dots so each existing circle travels the least
+ * (sum of squared moves, brute force over the permutations).
+ * With pinKernel (default) circle 0 keeps the kernel role — the mark's
+ * reacher identity. Without it the center is an office, not an identity:
+ * every circle competes for every seat, and whichever lands on target[0]
+ * holds the center this formation.
  * Returns a new dots array aligned to the current circles' indices.
  */
-export function assignTargets(current, target) {
-  const nk = target.length - 1;
-  const idx = Array.from({ length: nk }, (_, i) => i + 1);
+export function assignTargets(current, target, pinKernel = true) {
+  const start = pinKernel ? 1 : 0;
+  const idx = Array.from({ length: target.length - start }, (_, i) => i + start);
   let bestPerm = idx.slice();
   let bestCost = Infinity;
   const d2 = (a, b) => {
@@ -385,7 +388,7 @@ export function assignTargets(current, target) {
     if (k === arr.length) {
       let cost = 0;
       for (let i = 0; i < arr.length; i++)
-        cost += d2(current[i + 1], target[arr[i]]);
+        cost += d2(current[i + start], target[arr[i]]);
       if (cost < bestCost) { bestCost = cost; bestPerm = arr.slice(); }
       return;
     }
@@ -395,8 +398,9 @@ export function assignTargets(current, target) {
       [arr[k], arr[i]] = [arr[i], arr[k]];
     }
   };
-  if (current && current.length === target.length && nk > 0) permute(idx.slice(), 0);
-  const out = [target[0]];
+  if (current && current.length === target.length && idx.length > 0)
+    permute(idx.slice(), 0);
+  const out = pinKernel ? [target[0]] : [];
   for (const p of bestPerm) out.push(target[p]);
   return out;
 }

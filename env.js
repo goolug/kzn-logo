@@ -47,7 +47,9 @@ const state = {
   fogscale: num('fogscale', 1),
   fogdensity: num('fogdensity', 1),
   raymode: params.get('raymode') || 'add',
+  raycolor: params.get('raycolor') || '', // '' = follow the dots' ink
   rayink: num('rayink', 0),
+  kernel: params.get('kernel') || 'fixed',
   rayx: num('rayx', 0.5),
   rayy: num('rayy', 0.44),
   raydecay: num('raydecay', 0.899),
@@ -71,8 +73,9 @@ for (const n of ORDERABLE) if (!state.order.includes(n)) state.order.push(n);
 const DEFAULTS = {
   seed: 'kzn', scale: 1.31, ink: '1E1E1E', alpha: 1, blend: 'normal',
   soft: 0, fuse: 0.3, difdir: 45, diftight: 0.75, fogspeed: 0.2, fogscale: 1,
-  fogdensity: 1, raymode: 'add', rayink: 0, rayx: 0.5, rayy: 0.44,
-  raydecay: 0.899, raywobble: 0.15, rayfollow: 0, rscale: 1,
+  fogdensity: 1, raymode: 'add', raycolor: '', rayink: 0, rayx: 0.5,
+  rayy: 0.44, raydecay: 0.899, raywobble: 0.15, rayfollow: 0, rscale: 1,
+  kernel: 'fixed',
   bg0: 'FFFBF8', bg1: 'F2E7E8', bg2: 'D3D0DE', bgmid: 0.4844, noise: 1,
   duration: 750, stagger: 45, panel: true,
 };
@@ -96,7 +99,9 @@ function applyFormation() {
     scale: state.scale,
     duration: state.duration,
     stagger: state.stagger,
+    kernel: state.kernel,
   };
+  $('kernelSel').value = state.kernel;
   $('seedIn').value = state.seed;
   $('scaleR').value = state.scale;
   $('scaleOut').textContent = state.scale.toFixed(2) + '×';
@@ -138,6 +143,7 @@ function applyFx() {
     fogScale: state.fogscale,
     fogDensity: state.fogdensity,
     rayMode: state.raymode,
+    rayColor: state.raycolor ? '#' + state.raycolor : null,
     rayInk: state.rayink,
     rayX: state.rayx,
     rayY: state.rayy,
@@ -162,6 +168,7 @@ function applyFx() {
   $('fogdensity').value = state.fogdensity;
   $('fogdensityOut').textContent = state.fogdensity.toFixed(2);
   $('raymode').value = state.raymode;
+  $('raycolor').value = state.raycolor ? '#' + state.raycolor : '#' + state.ink;
   $('rayink').value = state.rayink;
   $('rayinkOut').textContent = state.rayink.toFixed(2);
   $('rayx').value = state.rayx;
@@ -238,6 +245,21 @@ slider('rscale', 'rscale', applyFx);
 $('raymode').addEventListener('change', () => {
   state.raymode = $('raymode').value;
   applyFx();
+  syncURL();
+});
+$('raycolor').addEventListener('input', () => {
+  state.raycolor = $('raycolor').value.slice(1);
+  applyFx();
+  syncURL();
+});
+$('rayUseInk').onclick = () => {
+  state.raycolor = '';
+  applyFx();
+  syncURL();
+};
+$('kernelSel').addEventListener('change', () => {
+  state.kernel = $('kernelSel').value;
+  applyFormation();
   syncURL();
 });
 slider('bgmid', 'bgmid', applyGround);

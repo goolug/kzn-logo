@@ -92,7 +92,7 @@ class KznLogo extends HTMLElement {
   /** Engine + motion options; merged, live. See core.defaults and svg renderer. */
   set options(patch) {
     const motion = {};
-    for (const k of ['duration', 'stagger', 'easing', 'motion'])
+    for (const k of ['duration', 'stagger', 'easing', 'motion', 'kernel'])
       if (k in patch) motion[k] = patch[k];
     for (const k of ['placement', 'gap', 'spread', 'edge', 'rankStep', 'count', 'rollouts'])
       if (k in patch) this.#engineOpts[k] = patch[k];

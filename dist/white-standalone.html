@@ -37,7 +37,8 @@
   .chrome {
     position: fixed;
     top: 20px;
-    font: 14px/1 'Replica Mono LL', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    /* Replica across the board (the comp's Mono nav was a mistake) */
+    font: 14px/1 'Replica LL', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     letter-spacing: 0;
     color: #19191e;
     filter: blur(0.75px); /* the comp's 1.5 layer blur */
@@ -49,16 +50,19 @@
   #join { right: 20px; }
   #manifesto {
     position: fixed;
-    left: 18px;
+    left: 20px;
     bottom: 24px;
     margin: 0;
-    width: min(1372px, calc(100vw - 68px));
-    font: clamp(28px, 3.8889vw, 56px)/1 'Replica LL', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    width: calc(100vw - 40px); /* flexes to the page, 20px side margins */
+    font: 56px/1 'Replica LL', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     letter-spacing: 0;
     color: #8c8c8f;
     filter: blur(0.5px); /* the comp's 1 layer blur */
   }
   #manifesto .lead { color: #fea021; }
+  /* the copy reads over the dots layer; pointer-events pass through so
+     the piece stays clickable/draggable everywhere */
+  .chrome, #manifesto { z-index: 3; pointer-events: none; }
 
   /* the panel's only affordance: a quiet mono link in the corner */
   #toggle {
@@ -209,15 +213,12 @@
 
 <script>
   // this instance's recipe: tone-on-tone — #FAF8F5 multiply on flat #FFFBF8.
-  // soft 0.35 ≈ the comp's 100px layer blur on Ø240 dots (216-3333).
   // fog/bokeh/zoom ride the shared recipe; the rays stay this page's own
   // (quiet add, following the ink) rather than the blue page's dodge/orange
   window.KZN_DEFAULTS = {
-    ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8', soft: 0.35,
+    ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8',
     rays: 1, raymode: 'add', raycolor: '', rayink: 0,
   };
-  // this page's opening box (Figma 216-3322 Symbol): 97 sides, 66.5/67.4
-  window.KZN_INTRO = { insets: [66.49, 97, 67.41, 97], fit: 'mark' };
 </script>
 <script type="module">
 // ---- src/core.js ----
@@ -2862,8 +2863,9 @@ panel.append(
     colorRow({ key: 'ink', label: 'ink', apply: applyDots }),
     rangeRow({ key: 'alpha', label: 'opacity', min: 0.02, max: 1, step: 0.01, apply: applyDots }),
     selectRow({ key: 'blend', label: 'blend', apply: applyDots, options: [
-      ['normal', 'normal'], ['difference', 'difference'],
-      ['multiply', 'multiply'], ['screen', 'screen']] }),
+      ['normal', 'normal'], ['multiply', 'multiply'], ['screen', 'screen'],
+      ['overlay', 'overlay'], ['color-dodge', 'color dodge'],
+      ['difference', 'difference']] }),
     rangeRow({ key: 'soft', label: 'soft edge', min: 0, max: 1, step: 0.01, apply: applyDots }),
     rangeRow({ key: 'fuse', label: 'fuse', min: 0, max: 0.8, step: 0.01, apply: applyDots })),
   section('Treatment', true,

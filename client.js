@@ -349,8 +349,9 @@ panel.append(
     colorRow({ key: 'ink', label: 'ink', apply: applyDots }),
     rangeRow({ key: 'alpha', label: 'opacity', min: 0.02, max: 1, step: 0.01, apply: applyDots }),
     selectRow({ key: 'blend', label: 'blend', apply: applyDots, options: [
-      ['normal', 'normal'], ['difference', 'difference'],
-      ['multiply', 'multiply'], ['screen', 'screen']] }),
+      ['normal', 'normal'], ['multiply', 'multiply'], ['screen', 'screen'],
+      ['overlay', 'overlay'], ['color-dodge', 'color dodge'],
+      ['difference', 'difference']] }),
     rangeRow({ key: 'soft', label: 'soft edge', min: 0, max: 1, step: 0.01, apply: applyDots }),
     rangeRow({ key: 'fuse', label: 'fuse', min: 0, max: 0.8, step: 0.01, apply: applyDots })),
   section('Treatment', true,

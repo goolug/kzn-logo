@@ -271,6 +271,14 @@ class KznLogo extends HTMLElement {
   };
 
   #onPointerMove = (e) => {
+    // feed the pointer to the renderer regardless of dragging — ray follow
+    if (this.#dyn?.setPointer) {
+      const r0 = this.getBoundingClientRect();
+      this.#dyn.setPointer(
+        (e.clientX - r0.left) / r0.width,
+        (e.clientY - r0.top) / r0.height
+      );
+    }
     if (!this.#dragReady()) return;
     if (!this.#dragState) {
       if (this.hasAttribute('drag'))

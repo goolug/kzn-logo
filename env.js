@@ -44,6 +44,15 @@ const state = {
   diftight: num('diftight', 0.75),
   grain: num('grain', 0),
   fogspeed: num('fogspeed', 0.2),
+  fogscale: num('fogscale', 1),
+  fogdensity: num('fogdensity', 1),
+  raymode: params.get('raymode') || 'add',
+  rayink: num('rayink', 0),
+  rayx: num('rayx', 0.5),
+  rayy: num('rayy', 0.44),
+  raydecay: num('raydecay', 0.899),
+  raywobble: num('raywobble', 0.15),
+  rayfollow: num('rayfollow', 0),
   rscale: num('rscale', 1),
   order: (params.get('order') || 'fog,bokeh,rays,zoom,diffuse').split(','),
   bg0: params.get('bg0') || 'FFFBF8',
@@ -61,7 +70,9 @@ state.order = state.order.filter((n) => ORDERABLE.includes(n));
 for (const n of ORDERABLE) if (!state.order.includes(n)) state.order.push(n);
 const DEFAULTS = {
   seed: 'kzn', scale: 1.31, ink: '1E1E1E', alpha: 1, blend: 'normal',
-  soft: 0, fuse: 0.3, difdir: 45, diftight: 0.75, fogspeed: 0.2, rscale: 1,
+  soft: 0, fuse: 0.3, difdir: 45, diftight: 0.75, fogspeed: 0.2, fogscale: 1,
+  fogdensity: 1, raymode: 'add', rayink: 0, rayx: 0.5, rayy: 0.44,
+  raydecay: 0.899, raywobble: 0.15, rayfollow: 0, rscale: 1,
   bg0: 'FFFBF8', bg1: 'F2E7E8', bg2: 'D3D0DE', bgmid: 0.4844, noise: 1,
   duration: 750, stagger: 45, panel: true,
 };
@@ -124,6 +135,15 @@ function applyFx() {
     difTight: state.diftight,
     grain: state.grain,
     fogSpeed: state.fogspeed,
+    fogScale: state.fogscale,
+    fogDensity: state.fogdensity,
+    rayMode: state.raymode,
+    rayInk: state.rayink,
+    rayX: state.rayx,
+    rayY: state.rayy,
+    rayDecay: state.raydecay,
+    rayWobble: state.raywobble,
+    rayFollow: state.rayfollow,
     renderScale: state.rscale,
     order: state.order,
   };
@@ -137,6 +157,23 @@ function applyFx() {
   $('diftightOut').textContent = state.diftight.toFixed(2);
   $('fogspeed').value = state.fogspeed;
   $('fogspeedOut').textContent = state.fogspeed.toFixed(2);
+  $('fogscale').value = state.fogscale;
+  $('fogscaleOut').textContent = state.fogscale.toFixed(2);
+  $('fogdensity').value = state.fogdensity;
+  $('fogdensityOut').textContent = state.fogdensity.toFixed(2);
+  $('raymode').value = state.raymode;
+  $('rayink').value = state.rayink;
+  $('rayinkOut').textContent = state.rayink.toFixed(2);
+  $('rayx').value = state.rayx;
+  $('rayxOut').textContent = state.rayx.toFixed(2);
+  $('rayy').value = state.rayy;
+  $('rayyOut').textContent = state.rayy.toFixed(2);
+  $('raydecay').value = state.raydecay;
+  $('raydecayOut').textContent = state.raydecay.toFixed(3);
+  $('raywobble').value = state.raywobble;
+  $('raywobbleOut').textContent = state.raywobble.toFixed(2);
+  $('rayfollow').value = state.rayfollow;
+  $('rayfollowOut').textContent = state.rayfollow.toFixed(2);
   $('rscale').value = state.rscale;
   $('rscaleOut').textContent = state.rscale.toFixed(2) + '×';
 }
@@ -189,7 +226,20 @@ for (const k of FX) slider(k, k, applyFx);
 slider('difdir', 'difdir', applyFx);
 slider('diftight', 'diftight', applyFx);
 slider('fogspeed', 'fogspeed', applyFx);
+slider('fogscale', 'fogscale', applyFx);
+slider('fogdensity', 'fogdensity', applyFx);
+slider('rayink', 'rayink', applyFx);
+slider('rayx', 'rayx', applyFx);
+slider('rayy', 'rayy', applyFx);
+slider('raydecay', 'raydecay', applyFx);
+slider('raywobble', 'raywobble', applyFx);
+slider('rayfollow', 'rayfollow', applyFx);
 slider('rscale', 'rscale', applyFx);
+$('raymode').addEventListener('change', () => {
+  state.raymode = $('raymode').value;
+  applyFx();
+  syncURL();
+});
 slider('bgmid', 'bgmid', applyGround);
 slider('noiseAmt', 'noise', applyGround);
 

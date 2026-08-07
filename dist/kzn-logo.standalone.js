@@ -818,16 +818,17 @@ const FBM = `
     }
     return n;
   }
-  // fog field: centered like the source scene, sigmoid-compressed
-  float fogField(vec2 uv, float ar, float t) {
+  // fog field: centered like the source scene, sigmoid-compressed.
+  // fscale zooms the clouds, density is the mask gain (patchy ↔ even).
+  float fogField(vec2 uv, float ar, float t, float fscale, float density) {
     vec2 aspect = vec2(ar, 1.0);
-    float mult = 10.0 * (0.648 / ((ar + 1.0) * 0.5));
+    float mult = 10.0 * (0.648 / ((ar + 1.0) * 0.5)) * fscale;
     vec2 st = (uv * aspect - vec2(0.504, 0.564) * aspect) * mult;
     float c = cos(1.0128), s = sin(1.0128);
     st = mat2(c, -s, s, c) * st;
     float n = fbm(st, t * 3.0);
     n = n / (1.0 + abs(n));
-    return clamp(n * 2.0, 0.0, 1.0);
+    return clamp(n * 2.0 * density, 0.0, 1.0);
   }
 `;
 
@@ -910,12 +911,14 @@ const FIELD_FS = `#version 300 es
 precision highp float;
 uniform vec2 uRes;
 uniform float uTime;
+uniform float uFogScale;
+uniform float uFogDensity;
 out vec4 outColor;
 ${LIB}
 ${FBM}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
-  float f = fogField(uv, uRes.x / uRes.y, uTime);
+  float f = fogField(uv, uRes.x / uRes.y, uTime, uFogScale, uFogDensity);
   outColor = vec4(f, f, f, 1.0);
 }`;
 
@@ -1022,13 +1025,15 @@ precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uRes;
 uniform float uAmt;
+uniform vec2 uLight;   // light position, uv space (source scene: 0.5, 0.5574)
+uniform float uDecay;  // per-step falloff — the rays' length (source: 0.899)
+uniform float uWobble; // sinuous perturbation of the march (source: 0.15)
 out vec4 outColor;
 ${LIB}
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
-  vec2 light = vec2(0.5, 0.5574); // just below center, as in the source scene
   const float N = 48.0;
-  vec2 stepv = (light - uv) / N * 0.2775;
+  vec2 stepv = (uLight - uv) / N * 0.2775;
   float noise = ign(gl_FragCoord.xy);
   vec2 s = uv + stepv * noise;
   vec2 perp = vec2(-stepv.y, stepv.x);
@@ -1036,28 +1041,43 @@ void main() {
   vec3 acc = vec3(0.0);
   for (float i = 0.0; i < N; i++) {
     float th = i / N;
-    s += stepv + perp * th * sin(noise * 0.25 * (1.0 + th) * 50.0) * 0.15;
+    s += stepv + perp * th * sin(noise * 0.25 * (1.0 + th) * 50.0) * uWobble;
     vec3 samp = texture(uTex, s).rgb;
     float lum = dot(samp, vec3(0.299, 0.587, 0.114));
     acc += samp * smoothstep(-0.1, 0.0, lum) * weight;
-    weight *= 0.899;
+    weight *= uDecay;
     if (weight < 0.05) break;
   }
   outColor = vec4(acc / N * 2.8 * uAmt, 1.0);
 }`;
 
+// composite the ray shafts over the frame — the mode decides whether light
+// is added (dark grounds) or taken away (light grounds)
 const ADD_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uTex;  // base
-uniform sampler2D uAddT; // additive layer
+uniform sampler2D uAddT; // ray shafts
 uniform vec2 uRes;
+uniform int uMode;       // 0 add · 1 screen · 2 dodge · 3 softlight
+                         // 4 multiply · 5 burn · 6 subtract
+uniform float uRayInk;   // 0 = shafts keep scene light, 1 = shafts are ink
+uniform vec4 uInkC;
 out vec4 outColor;
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   vec4 b = texture(uTex, uv);
-  vec3 add = texture(uAddT, uv).rgb;
-  float aAdd = dot(add, vec3(0.299, 0.587, 0.114));
-  outColor = vec4(b.rgb + add, min(1.0, b.a + aAdd));
+  vec3 L0 = texture(uAddT, uv).rgb;
+  float S = clamp(dot(L0, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+  vec3 L = clamp(mix(L0, uInkC.rgb * S, uRayInk), 0.0, 1.0);
+  vec3 c;
+  if (uMode == 1)      c = 1.0 - (1.0 - b.rgb) * (1.0 - L);
+  else if (uMode == 2) c = b.rgb / max(1.0 - L, vec3(0.001));
+  else if (uMode == 3) c = b.rgb + L * (sqrt(max(b.rgb, 0.0)) - b.rgb);
+  else if (uMode == 4) c = b.rgb * (1.0 - L);
+  else if (uMode == 5) c = 1.0 - (1.0 - b.rgb) / max(1.0 - vec3(S), vec3(0.001));
+  else if (uMode == 6) c = b.rgb - L;
+  else                 c = b.rgb + L;
+  outColor = vec4(clamp(c, 0.0, 1.0), min(1.0, b.a + S));
 }`;
 
 // zoom blur: radial streaks toward the center — gated OFF near the center
@@ -1172,6 +1192,9 @@ const ZERO_STACK = Object.fromEntries(
 );
 
 const BLEND_IDS = { normal: 0, difference: 1, multiply: 2, screen: 3 };
+const RAY_MODES = {
+  add: 0, screen: 1, dodge: 2, softlight: 3, multiply: 4, burn: 5, subtract: 6,
+};
 
 function createWebGLRenderer(canvas, host, opts = {}) {
   const gl = canvas.getContext('webgl2', {
@@ -1244,6 +1267,15 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       difAngle: 45,
       difTight: 0.75,
       fogSpeed: 0.2, //   the source layer's speed
+      fogScale: 1, //     cloud size (field zoom)
+      fogDensity: 1, //   mask gain — patchy ↔ even
+      rayX: 0.5, //       light position, fraction of width
+      rayY: 0.4426, //    …fraction of height from the top (source scene value)
+      rayDecay: 0.899,
+      rayWobble: 0.15,
+      rayFollow: 0, //    0..1 — how much the light chases the pointer
+      rayMode: 'add', //  add·screen·dodge·softlight (dark grounds) — multiply·burn·subtract (light)
+      rayInk: 0, //       0..1 — shafts drift from scene light to pure ink
       renderScale: 1, //  resolution factor for the whole chain
       order: null, //     pass order, e.g. ['rays','fog','bokeh','zoom','diffuse']
     },
@@ -1254,6 +1286,8 @@ function createWebGLRenderer(canvas, host, opts = {}) {
     dpr: 1,
     draws: 0, //       frames actually rendered — an honest fps source
     offscreen: false,
+    pointer: [0.5, 0.5], //  raw, 0..1 from the top-left
+    mouseS: [0.5, 0.5], //   smoothed — the momentum feel
     t0: performance.now(),
   };
 
@@ -1385,7 +1419,11 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       // the ink under the fbm mask. The field itself renders once per frame.
       fog: () => {
         if (!(e.fog > 0 || e.grain > 0)) return;
-        pass(prg.field, 'quarterC', (u) => gl.uniform1f(u.uTime, time));
+        pass(prg.field, 'quarterC', (u) => {
+          gl.uniform1f(u.uTime, time);
+          gl.uniform1f(u.uFogScale, e.fogScale ?? 1);
+          gl.uniform1f(u.uFogDensity, e.fogDensity ?? 1);
+        });
         drawScene('quarterA', 2);
         for (const [src, dst, dx, dy] of [
           ['quarterA', 'quarterB', 1, 0],
@@ -1440,12 +1478,24 @@ function createWebGLRenderer(canvas, host, opts = {}) {
           bindTex(0, targets[cur].tex);
           gl.uniform1i(u.uTex, 0);
           gl.uniform1f(u.uAmt, e.rays);
+          // fixed light, pulled toward the (smoothed) pointer by rayFollow
+          const fol = e.rayFollow ?? 0;
+          const bx = e.rayX ?? 0.5;
+          const by = 1 - (e.rayY ?? 0.4426); // sliders are top-down, uv is not
+          const mx = state.mouseS[0];
+          const my = 1 - state.mouseS[1];
+          gl.uniform2f(u.uLight, bx + (mx - bx) * fol, by + (my - by) * fol);
+          gl.uniform1f(u.uDecay, e.rayDecay ?? 0.899);
+          gl.uniform1f(u.uWobble, e.rayWobble ?? 0.15);
         });
         pass(prg.add, spare, (u) => {
           bindTex(0, targets[cur].tex);
           bindTex(1, targets.halfB.tex);
           gl.uniform1i(u.uTex, 0);
           gl.uniform1i(u.uAddT, 1);
+          gl.uniform1i(u.uMode, RAY_MODES[e.rayMode] ?? 0);
+          gl.uniform1f(u.uRayInk, e.rayInk ?? 0);
+          gl.uniform4fv(u.uInkC, state.ink);
         });
         swap();
       },
@@ -1504,6 +1554,9 @@ function createWebGLRenderer(canvas, host, opts = {}) {
         state.onSettle?.();
       }
     }
+    // the ray light drifts toward the pointer with momentum
+    state.mouseS[0] += (state.pointer[0] - state.mouseS[0]) * 0.08;
+    state.mouseS[1] += (state.pointer[1] - state.mouseS[1]) * 0.08;
     draw();
     if (needsLoop()) state.raf = requestAnimationFrame(tick);
   }
@@ -1641,6 +1694,16 @@ function createWebGLRenderer(canvas, host, opts = {}) {
       state.cssH = cssH;
       state.dpr = dpr || 1;
       applySize();
+    },
+    /** Pointer position in 0..1 (top-left origin) — feeds ray follow. */
+    setPointer(nx, ny) {
+      state.pointer = [nx, ny];
+      if ((fx().rayFollow ?? 0) > 0 && fx().rays > 0 && !state.raf) {
+        // no loop running (fog off): smooth per-event and redraw directly
+        state.mouseS[0] += (nx - state.mouseS[0]) * 0.15;
+        state.mouseS[1] += (ny - state.mouseS[1]) * 0.15;
+        draw();
+      }
     },
     /** Pause rendering entirely while scrolled out of view. */
     setVisible(v) {
@@ -1945,6 +2008,14 @@ class KznLogo extends HTMLElement {
   };
 
   #onPointerMove = (e) => {
+    // feed the pointer to the renderer regardless of dragging — ray follow
+    if (this.#dyn?.setPointer) {
+      const r0 = this.getBoundingClientRect();
+      this.#dyn.setPointer(
+        (e.clientX - r0.left) / r0.width,
+        (e.clientY - r0.top) / r0.height
+      );
+    }
     if (!this.#dragReady()) return;
     if (!this.#dragState) {
       if (this.hasAttribute('drag'))

@@ -289,18 +289,7 @@ export function constrainDrag(formation, index, target, options = {}) {
     return true;
   };
 
-  if (index === 0) {
-    const a = Math.atan2(target[1], target[0]);
-    if (!Number.isFinite(a) || (target[0] === 0 && target[1] === 0)) return prev;
-    for (let k = 0; k <= 180; k++) {
-      for (const s of k === 0 ? [1] : [1, -1]) {
-        const ang = a + (s * k * Math.PI) / 180;
-        const p = [R * Math.cos(ang), R * Math.sin(ang)];
-        if (clear(p)) return p;
-      }
-    }
-    return prev;
-  }
+  if (index === 0) return orbitKernel(target, prev, clear);
 
   const clampX = (x) => Math.max(-limX, Math.min(limX, x));
   const clampY = (y) => Math.max(-limY, Math.min(limY, y));
@@ -331,6 +320,87 @@ export function constrainDrag(formation, index, target, options = {}) {
     if (clear(p)) return p;
   }
   return prev;
+}
+
+/** The kernel's drag: angle follows the pointer, edge never leaves center. */
+function orbitKernel(target, prev, clear) {
+  const a = Math.atan2(target[1], target[0]);
+  if (!Number.isFinite(a) || (target[0] === 0 && target[1] === 0)) return prev;
+  for (let k = 0; k <= 180; k++) {
+    for (const s of k === 0 ? [1] : [1, -1]) {
+      const ang = a + (s * k * Math.PI) / 180;
+      const p = [R * Math.cos(ang), R * Math.sin(ang)];
+      if (clear(p)) return p;
+    }
+  }
+  return prev;
+}
+
+/**
+ * Free drag: the dot follows the pointer continuously — no grid snapping.
+ * What survives are the mark's hard rules, not the lattice: dots never
+ * overlap (the dragged dot slides around its neighbors at contact), nothing
+ * ever covers the crosshair, everything stays inside the canvas, and the
+ * kernel still orbits — its edge pinned through the center.
+ */
+export function freeDrag(formation, index, target, options = {}) {
+  const o = { ...defaults, ...options };
+  const { w, h, dots } = formation;
+  const limX = w / 2 - R - o.edge;
+  const limY = h / 2 - R - o.edge;
+  const prev = dots[index].slice();
+  const minD = 2 * R + o.gap;
+  const centerMin = R + 0.02;
+  const clear = (p) => {
+    for (let j = 0; j < dots.length; j++) {
+      if (j === index) continue;
+      if (dist(p, dots[j]) < minD - 1e-9) return false;
+    }
+    return true;
+  };
+
+  if (index === 0) return orbitKernel(target, prev, clear);
+
+  let p = [
+    Math.max(-limX, Math.min(limX, target[0])),
+    Math.max(-limY, Math.min(limY, target[1])),
+  ];
+  // relax: push out of neighbors and off the crosshair until settled —
+  // this is what makes the dot glide around obstacles instead of sinking in
+  for (let it = 0; it < 6; it++) {
+    let moved = false;
+    for (let j = 0; j < dots.length; j++) {
+      if (j === index) continue;
+      let dx = p[0] - dots[j][0];
+      let dy = p[1] - dots[j][1];
+      let d = Math.hypot(dx, dy);
+      if (d < minD - 1e-9) {
+        if (d < 1e-6) {
+          // dead center: surface on the side the dot came from
+          dx = prev[0] - dots[j][0];
+          dy = prev[1] - dots[j][1];
+          d = Math.hypot(dx, dy) || 1;
+        }
+        p = [dots[j][0] + (dx / d) * minD, dots[j][1] + (dy / d) * minD];
+        moved = true;
+      }
+    }
+    const cd = Math.hypot(p[0], p[1]);
+    if (cd < centerMin - 1e-9) {
+      p = cd < 1e-6 ? [centerMin, 0] : [(p[0] / cd) * centerMin, (p[1] / cd) * centerMin];
+      moved = true;
+    }
+    const cx = Math.max(-limX, Math.min(limX, p[0]));
+    const cy = Math.max(-limY, Math.min(limY, p[1]));
+    if (cx !== p[0] || cy !== p[1]) {
+      p = [cx, cy];
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  // genuinely squeezed (corner + neighbors): refuse rather than overlap
+  if (!clear(p) || Math.hypot(p[0], p[1]) < centerMin - 1e-6) return prev;
+  return p;
 }
 
 /**

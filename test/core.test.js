@@ -10,6 +10,7 @@ import {
   gridLines,
   assignTargets,
   constrainDrag,
+  freeDrag,
   rng,
 } from '../src/core.js';
 
@@ -237,6 +238,59 @@ test('constrainDrag: blocked targets leave the dot where it was', () => {
     if (j !== 4)
       assert.ok(dist(p, f.dots[j]) >= 2 * R + defaults.gap - EPS);
   assert.ok(Math.hypot(p[0] - before[0], p[1] - before[1]) < 3, 'teleported oddly');
+});
+
+test('freeDrag: follows the pointer exactly when the way is clear', () => {
+  const f = { w: 8, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  const p = freeDrag(f, 4, [-2.37, 1.13]); // open space, off-lattice
+  assert.ok(Math.hypot(p[0] + 2.37, p[1] - 1.13) < EPS, 'did not follow pointer');
+});
+
+test('freeDrag: never overlaps, never covers the crosshair, stays in bounds', () => {
+  const f = { w: 8, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  const r = rng('freedrag');
+  for (let k = 0; k < 400; k++) {
+    const i = 1 + Math.floor(r() * 5);
+    const target = [(r() * 2 - 1) * 5, (r() * 2 - 1) * 3]; // incl. out of bounds
+    const p = freeDrag(f, i, target);
+    for (let j = 0; j < f.dots.length; j++)
+      if (j !== i)
+        assert.ok(
+          dist(p, f.dots[j]) >= 2 * R + defaults.gap - 1e-6,
+          'dots overlapped'
+        );
+    assert.ok(Math.hypot(p[0], p[1]) >= R + 0.02 - 1e-6, 'covered the crosshair');
+    assert.ok(Math.abs(p[0]) <= 4 - R - defaults.edge + 1e-6, 'x out of bounds');
+    assert.ok(Math.abs(p[1]) <= 2 - R - defaults.edge + 1e-6, 'y out of bounds');
+    f.dots[i] = p; // walk on
+  }
+});
+
+test('freeDrag: pressed into a neighbor, the dot rests at the contact surface', () => {
+  // drag incrementally, like real pointer frames: dot 1 pushes up into the
+  // kernel and must come to rest touching-distance below it, never inside
+  const f = { w: 8, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  const start = f.dots[1].slice();
+  const kernel = f.dots[0];
+  for (let s = 1; s <= 40; s++) {
+    const t = s / 40;
+    const target = [
+      start[0] + (kernel[0] - start[0]) * t,
+      start[1] + (kernel[1] - start[1]) * t,
+    ];
+    f.dots[1] = freeDrag(f, 1, target);
+  }
+  const d = dist(f.dots[1], kernel);
+  const minD = 2 * R + defaults.gap;
+  assert.ok(d >= minD - 1e-6, 'sank into the kernel');
+  assert.ok(d <= minD + 0.05, `did not come to rest at contact (d=${d})`);
+  assert.ok(f.dots[1][1] < kernel[1], 'ended on the wrong side of the kernel');
+});
+
+test('freeDrag: kernel still orbits under free drag', () => {
+  const f = { w: 4, h: 4, dots: MARK_IDEAL.dots.map((d) => d.slice()) };
+  const p = freeDrag(f, 0, [1.4, -0.9]);
+  assert.ok(Math.abs(Math.hypot(p[0], p[1]) - R) < EPS, 'kernel left the crosshair');
 });
 
 test('constrainDrag: lines placement keeps the center on a gridline', () => {

@@ -6,7 +6,7 @@
 //
 // Sizing is the host's business (CSS width/height); ink is CSS `color`.
 
-import { generate, gridLines, constrainDrag, MARK, MARK_IDEAL, R } from './core.js';
+import { generate, gridLines, constrainDrag, freeDrag, MARK, MARK_IDEAL, R } from './core.js';
 import { renderMark, createDynamicRenderer, toSVG } from './svg.js';
 import { createWebGLRenderer } from './webgl.js';
 
@@ -213,10 +213,19 @@ class KznLogo extends HTMLElement {
   #onPointerDown = (e) => {
     this.#suppressClick = false; // a fresh interaction always starts clean
     if (!this.#dragReady() || !e.isPrimary) return;
-    const i = this.#hitDot(this.#cellFromEvent(e));
+    const cell = this.#cellFromEvent(e);
+    const i = this.#hitDot(cell);
     if (i < 0) return;
     this.setPointerCapture(e.pointerId);
-    this.#dragState = { index: i, moved: false, x0: e.clientX, y0: e.clientY };
+    const dot = this.#dyn.current[i];
+    this.#dragState = {
+      index: i,
+      moved: false,
+      x0: e.clientX,
+      y0: e.clientY,
+      // keep the grab point — the dot must not jump to the pointer center
+      off: [dot[0] - cell[0], dot[1] - cell[1]],
+    };
   };
 
   #onPointerMove = (e) => {
@@ -237,10 +246,16 @@ class KznLogo extends HTMLElement {
     this.style.cursor = 'grabbing';
     const f = this.#dyn.formation;
     const cur = this.#dyn.current;
-    cur[s.index] = constrainDrag(
+    const cell = this.#cellFromEvent(e);
+    // free drag by default; drag="grid" restores lattice-constrained moves.
+    // The kernel always takes the raw pointer — its orbit follows direction.
+    const grid = this.getAttribute('drag') === 'grid';
+    const target =
+      s.index === 0 ? cell : [cell[0] + s.off[0], cell[1] + s.off[1]];
+    cur[s.index] = (grid ? constrainDrag : freeDrag)(
       { w: f.w, h: f.h, dots: cur },
       s.index,
-      this.#cellFromEvent(e),
+      target,
       this.#engineOpts
     );
     this.#dyn.poke(cur);

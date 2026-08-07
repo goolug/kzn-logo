@@ -2436,11 +2436,11 @@ const num = (k, d) => +(params.get(k) ?? d);
 // 53 top / 138 sides / 130 bottom — fixed px, same rule at every viewport
 const INTRO = { insets: [53, 138, 130, 138], fit: 'mark' };
 
-// opening recipe = the client-review settings: blue ink at 9% multiply over
-// the 02-Home ground, full kaizen stack with calm slow fog
+// opening recipe = the client-review settings: brand blue at 9% multiply
+// over the 02-Home ground, full kaizen stack with calm slow fog
 const DEFAULTS = {
   seed: 'kzn', scale: 1.31, kernel: 'fixed', duration: 750, stagger: 45,
-  ink: '2E41E7', alpha: 0.09, blend: 'multiply', soft: 0, fuse: 0.3,
+  ink: '007CE6', alpha: 0.09, blend: 'multiply', soft: 0, fuse: 0.3,
   fog: 1, fogspeed: 0.65, fogscale: 0.65, fogdensity: 0.25,
   bokeh: 1,
   rays: 1, raymode: 'add', raycolor: '', rayink: 0, rayx: 0.5, rayy: 0.44,
@@ -2645,6 +2645,8 @@ function colorRow(o) {
     if (/^[0-9A-F]{6}$/.test(v)) mutate(o.key, v, o.apply, distinct);
   };
   pick.addEventListener('input', () => commit(pick.value));
+  // commit live once six hex digits are in; change just reformats on blur
+  hex.addEventListener('input', () => commit(hex.value));
   hex.addEventListener('change', () => {
     commit(hex.value, true);
     hex.value = '#' + (o.shown ? o.shown() : state[o.key]);
@@ -2684,6 +2686,20 @@ function section(title, open, ...kids) {
 
 const undoBtn = el('button', { id: 'undoBtn', textContent: '↩ undo', disabled: true });
 undoBtn.addEventListener('click', undo);
+
+// back to the opening recipe (settings only — the formation stays put);
+// lands on the undo stack, so reset itself can be undone
+const resetBtn = el('button', { textContent: 'reset' });
+resetBtn.addEventListener('click', () => {
+  past.push(snap());
+  if (past.length > 100) past.shift();
+  lastKey = null;
+  for (const [k, d] of Object.entries(DEFAULTS)) state[k] = d;
+  state.order = ORDERABLE.slice();
+  applyAll();
+  syncURL();
+  undoBtn.disabled = false;
+});
 
 const shuffleBtn = el('button', { className: 'primary', textContent: 'shuffle ↻' });
 shuffleBtn.addEventListener('click', () => logo.shuffle());
@@ -2732,7 +2748,7 @@ groups.diffuse = el('div', {},
   rangeRow({ key: 'diftight', label: '· tightness', min: 0, max: 1, step: 0.01, apply: fxApply, sub: true }));
 
 panel.append(
-  el('div', { className: 'actions' }, undoBtn),
+  el('div', { className: 'actions' }, undoBtn, resetBtn),
   section('Formation', false,
     el('div', { className: 'row' }, shuffleBtn, introBtn),
     el('div', { className: 'row' },

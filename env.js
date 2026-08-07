@@ -58,9 +58,7 @@ const state = {
   rscale: num('rscale', 1),
   order: (params.get('order') || 'fog,bokeh,rays,zoom,diffuse').split(','),
   bg0: params.get('bg0') || 'FFFBF8',
-  bg1: params.get('bg1') || 'F2E7E8',
   bg2: params.get('bg2') || 'D3D0DE',
-  bgmid: num('bgmid', 0.4844),
   noise: num('noise', 1),
   duration: num('duration', 750),
   stagger: num('stagger', 45),
@@ -76,7 +74,7 @@ const DEFAULTS = {
   fogdensity: 1, raymode: 'add', raycolor: '', rayink: 0, rayx: 0.5,
   rayy: 0.44, raydecay: 0.899, raywobble: 0.15, rayfollow: 0, rscale: 1,
   kernel: 'fixed',
-  bg0: 'FFFBF8', bg1: 'F2E7E8', bg2: 'D3D0DE', bgmid: 0.4844, noise: 1,
+  bg0: 'FFFBF8', bg2: 'D3D0DE', noise: 1,
   duration: 750, stagger: 45, panel: true,
 };
 
@@ -191,13 +189,10 @@ function applyOrder() {
 }
 
 function applyGround() {
-  frame.style.background = `linear-gradient(180deg, #${state.bg0} 0%, #${state.bg1} ${(state.bgmid * 100).toFixed(2)}%, #${state.bg2} 100%)`;
+  frame.style.background = `linear-gradient(180deg, #${state.bg0} 0%, #${state.bg2} 100%)`;
   document.querySelector('svg.noise').style.opacity = state.noise;
   $('bg0').value = '#' + state.bg0;
-  $('bg1').value = '#' + state.bg1;
   $('bg2').value = '#' + state.bg2;
-  $('bgmid').value = state.bgmid;
-  $('bgmidOut').textContent = (state.bgmid * 100).toFixed(0) + '%';
   $('noiseAmt').value = state.noise;
   $('noiseOut').textContent = state.noise.toFixed(2);
   logo.refreshInk();
@@ -262,7 +257,6 @@ $('kernelSel').addEventListener('change', () => {
   applyFormation();
   syncURL();
 });
-slider('bgmid', 'bgmid', applyGround);
 slider('noiseAmt', 'noise', applyGround);
 
 for (const btn of document.querySelectorAll('button.up'))
@@ -278,16 +272,14 @@ for (const btn of document.querySelectorAll('button.up'))
     }
   });
 
-for (const id of ['bg0', 'bg1', 'bg2'])
+for (const id of ['bg0', 'bg2'])
   $(id).addEventListener('input', () => {
     state[id] = $(id).value.slice(1);
     applyGround();
     syncURL();
   });
 $('groundReset').onclick = () => {
-  Object.assign(state, {
-    bg0: 'FFFBF8', bg1: 'F2E7E8', bg2: 'D3D0DE', bgmid: 0.4844, noise: 1,
-  });
+  Object.assign(state, { bg0: 'FFFBF8', bg2: 'D3D0DE', noise: 1 });
   applyGround();
   syncURL();
 };

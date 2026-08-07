@@ -41,11 +41,14 @@ const envHtml = (await read('env.html')).replace(
 );
 await writeFile(new URL('../dist/env-standalone.html', import.meta.url), envHtml);
 
+// instance pages share client.js — each html carries only its own recipe
 const client = strip(await read('client.js'));
-const clientHtml = (await read('client.html')).replace(
-  /<script type="module" src="\.\/client\.js"><\/script>/,
-  () => `<script type="module">\n${lib}\n\n// ---- client.js ----\n${client}\n</script>`
-);
-await writeFile(new URL('../dist/client-standalone.html', import.meta.url), clientHtml);
+for (const page of ['client', 'white']) {
+  const pageHtml = (await read(`${page}.html`)).replace(
+    /<script type="module" src="\.\/client\.js"><\/script>/,
+    () => `<script type="module">\n${lib}\n\n// ---- client.js ----\n${client}\n</script>`
+  );
+  await writeFile(new URL(`../dist/${page}-standalone.html`, import.meta.url), pageHtml);
+}
 
-console.log('dist: kzn-logo.standalone.js, demo-standalone.html, env-standalone.html, client-standalone.html');
+console.log('dist: kzn-logo.standalone.js, demo-standalone.html, env-standalone.html, client-standalone.html, white-standalone.html');

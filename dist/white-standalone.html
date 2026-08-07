@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>KZN — motion study</title>
+<title>KZN — white study</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
-    /* the piece IS the page: ground painted here, dots fixed over it */
-    background: linear-gradient(180deg, #f2e9f0 0%, #d7d7e2 100%);
+    /* the piece IS the page: flat warm white, dots whisper over it */
+    background: #fffbf8;
     background-attachment: fixed;
     font: 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     color: #fffbf8;
@@ -125,6 +125,10 @@
 <button id="toggle">hide</button>
 <aside id="panel"></aside>
 
+<script>
+  // this instance's recipe: tone-on-tone — #FAF8F5 multiply on flat #FFFBF8
+  window.KZN_DEFAULTS = { ink: 'FAF8F5', alpha: 1, bg0: 'FFFBF8', bg2: 'FFFBF8' };
+</script>
 <script type="module">
 // ---- src/core.js ----
 // kzn-logo — core geometry engine. No DOM, no dependencies.

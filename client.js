@@ -33,6 +33,11 @@ const DEFAULTS = {
 };
 const ORDERABLE = ['fog', 'bokeh', 'rays', 'zoom', 'diffuse'];
 
+// an instance page (white.html, …) declares its own recipe by setting
+// window.KZN_DEFAULTS before this module — reset and the URL-is-a-preset
+// logic then work against that page's opening, not the shared one
+Object.assign(DEFAULTS, window.KZN_DEFAULTS);
+
 const state = {};
 for (const [k, d] of Object.entries(DEFAULTS))
   state[k] = typeof d === 'number' ? num(k, d) : (params.get(k) ?? d);

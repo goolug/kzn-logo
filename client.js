@@ -115,7 +115,8 @@ function applyOrder() {
 }
 
 function applyGround() {
-  document.body.style.backgroundImage =
+  const ground = document.getElementById('ground') || document.body;
+  ground.style.backgroundImage =
     `linear-gradient(180deg, #${state.bg0} 0%, #${state.bg2} 100%)`;
   document.querySelector('svg.noise').style.opacity = state.noise;
   logo.refreshInk();

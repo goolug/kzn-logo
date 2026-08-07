@@ -8,14 +8,22 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
-    /* the piece IS the page: flat warm white, dots whisper over it */
-    background: #fffbf8;
-    background-attachment: fixed;
+    background: #fffbf8; /* fallback only — #ground paints the real ground */
     font: 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     color: #fffbf8;
     overflow: hidden;
+    /* keep the dots' mix-blend-mode resolving against #ground: the ground
+       must be a real element in the same stacking context (a blend never
+       reaches the body-propagated page background, and position:fixed
+       hosts isolate in Safari — so the layers below are absolute) */
+    isolation: isolate;
   }
-  kzn-logo, svg.noise { position: fixed; inset: 0; width: 100%; height: 100%; }
+  #ground {
+    position: fixed;
+    inset: 0;
+    background: #fffbf8; /* flat warm white, dots whisper over it */
+  }
+  kzn-logo, svg.noise { position: absolute; inset: 0; width: 100%; height: 100%; }
   kzn-logo { color: #1e1e1e; }
   svg.noise { pointer-events: none; }
 
@@ -154,6 +162,7 @@
 </style>
 </head>
 <body>
+<div id="ground"></div>
 <!-- page chrome sits under the dots layer, per the comp's stacking -->
 <div id="lockup" class="chrome" role="img" aria-label="Kaizen">
   <!-- lockup: KAIZEN letterforms verbatim from Figma (vector export of node
@@ -2630,7 +2639,8 @@ function applyOrder() {
 }
 
 function applyGround() {
-  document.body.style.backgroundImage =
+  const ground = document.getElementById('ground') || document.body;
+  ground.style.backgroundImage =
     `linear-gradient(180deg, #${state.bg0} 0%, #${state.bg2} 100%)`;
   document.querySelector('svg.noise').style.opacity = state.noise;
   logo.refreshInk();
